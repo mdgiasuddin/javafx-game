@@ -36,6 +36,17 @@ public class TetrominoUtil {
     );
 
     public static Tetromino getRandomPiece() {
-        return new Tetromino(shapes.get(random.nextInt(shapes.size())), colors.get(random.nextInt(colors.size())));
+        return new Tetromino(
+                copyArray(shapes.get(random.nextInt(shapes.size()))),
+                colors.get(random.nextInt(colors.size()))
+        );
+    }
+
+    private static int[][] copyArray(int[][] arr) {
+        int[][] copy = new int[arr.length][];
+        for (int i = 0; i < arr.length; i++) {
+            copy[i] = arr[i].clone();
+        }
+        return copy;
     }
 }
