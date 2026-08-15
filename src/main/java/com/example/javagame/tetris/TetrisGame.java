@@ -1,4 +1,4 @@
-package com.example.tetrisgame;
+package com.example.javagame.tetris;
 
 import javafx.animation.AnimationTimer;
 import javafx.application.Application;

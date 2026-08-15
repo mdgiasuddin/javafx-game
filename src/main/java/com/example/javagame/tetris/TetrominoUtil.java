@@ -1,4 +1,4 @@
-package com.example.tetrisgame;
+package com.example.javagame.tetris;
 
 import javafx.scene.paint.Color;
 
