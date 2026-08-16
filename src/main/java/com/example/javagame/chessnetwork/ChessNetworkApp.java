@@ -2,7 +2,6 @@ package com.example.javagame.chessnetwork;
 
 import javafx.application.Application;
 import javafx.application.Platform;
-import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
@@ -11,7 +10,6 @@ import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
-import javafx.scene.text.FontWeight;
 import javafx.stage.Stage;
 
 import java.io.BufferedReader;
@@ -19,6 +17,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+
+import static javafx.geometry.Pos.CENTER;
+import static javafx.scene.text.FontWeight.BOLD;
 
 public class ChessNetworkApp extends Application {
 
@@ -79,7 +80,7 @@ public class ChessNetworkApp extends Application {
     @Override
     public void start(Stage primaryStage) {
         gridPane = new GridPane();
-        gridPane.setAlignment(Pos.CENTER);
+        gridPane.setAlignment(CENTER);
 
         for (int row = 0; row < BOARD_SIZE; row++) {
             for (int col = 0; col < BOARD_SIZE; col++) {
@@ -89,16 +90,16 @@ public class ChessNetworkApp extends Application {
         }
 
         statusLabel = new Label("Connecting to server...");
-        statusLabel.setFont(Font.font("Arial", FontWeight.BOLD, 18));
+        statusLabel.setFont(Font.font("Arial", BOLD, 18));
         statusLabel.setTextFill(Color.WHITE);
 
         statusContainer = new VBox(statusLabel);
-        statusContainer.setAlignment(Pos.CENTER);
+        statusContainer.setAlignment(CENTER);
         statusContainer.setPrefHeight(60);
         statusContainer.setStyle(CONNECTING_STYLE);
 
         VBox mainLayout = new VBox(15);
-        mainLayout.setAlignment(Pos.CENTER);
+        mainLayout.setAlignment(CENTER);
         mainLayout.setStyle("-fx-padding: 15px; -fx-background-color: #2b2b2b;");
         mainLayout.getChildren().addAll(statusContainer, gridPane);
 
@@ -309,21 +310,22 @@ public class ChessNetworkApp extends Application {
     }
 
     private void updateMovementFlags(String piece, int row, int col) {
-        if (piece.equals("♔")) {
-            whiteKingMoved = true;
-        } else if (piece.equals("♚")) {
-            blackKingMoved = true;
-        } else if (piece.equals("♖")) {
-            if (row == 7 && col == 0) {
-                whiteRookA1Moved = true;
-            } else if (row == 7 && col == 7) {
-                whiteRookH1Moved = true;
+        switch (piece) {
+            case "♔" -> whiteKingMoved = true;
+            case "♚" -> blackKingMoved = true;
+            case "♖" -> {
+                if (row == 7 && col == 0) {
+                    whiteRookA1Moved = true;
+                } else if (row == 7 && col == 7) {
+                    whiteRookH1Moved = true;
+                }
             }
-        } else if (piece.equals("♜")) {
-            if (row == 0 && col == 0) {
-                blackRookA8Moved = true;
-            } else if (row == 0 && col == 7) {
-                blackRookH8Moved = true;
+            case "♜" -> {
+                if (row == 0 && col == 0) {
+                    blackRookA8Moved = true;
+                } else if (row == 0 && col == 7) {
+                    blackRookH8Moved = true;
+                }
             }
         }
     }
@@ -478,7 +480,7 @@ public class ChessNetworkApp extends Application {
     }
 
     private boolean isValidMove(String piece, int sRow, int sCol, int tRow, int tCol) {
-        if (!isInsideBoard(sRow, sCol) || !isInsideBoard(tRow, tCol)) {
+        if (isOutsideBoard(sRow, sCol) || isOutsideBoard(tRow, tCol)) {
             return false;
         }
 
@@ -689,8 +691,8 @@ public class ChessNetworkApp extends Application {
         return false;
     }
 
-    private boolean isInsideBoard(int row, int col) {
-        return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE;
+    private boolean isOutsideBoard(int row, int col) {
+        return row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE;
     }
 
     private boolean isSameColor(String firstPiece, String secondPiece) {
