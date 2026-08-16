@@ -15,7 +15,7 @@ import javafx.stage.Stage;
 public class ChessApp extends Application {
 
     private static final int BOARD_SIZE = 8;
-    private static final int TILE_SIZE = 80;
+    private static final int TILE_SIZE = 100;
 
     private static final String[][] INITIAL_BOARD = {
             {"♜", "♞", "♝", "♛", "♚", "♝", "♞", "♜"},
@@ -37,6 +37,14 @@ public class ChessApp extends Application {
     private boolean gameOver = false;
     private Label statusLabel;
 
+    // Track movement flags for Castling
+    private boolean whiteKingMoved = false;
+    private boolean whiteRookA1Moved = false;
+    private boolean whiteRookH1Moved = false;
+    private boolean blackKingMoved = false;
+    private boolean blackRookA8Moved = false;
+    private boolean blackRookH8Moved = false;
+
     @Override
     public void start(Stage primaryStage) {
         GridPane gridPane = new GridPane();
@@ -57,8 +65,8 @@ public class ChessApp extends Application {
 
         mainLayout.getChildren().addAll(statusLabel, gridPane);
 
-        Scene scene = new Scene(mainLayout, 700, 750);
-        primaryStage.setTitle("JavaFX Chess - Legal Check Evasion");
+        Scene scene = new Scene(mainLayout, 900, 950);
+        primaryStage.setTitle("JavaFX Chess - Castling Added");
         primaryStage.setScene(scene);
         primaryStage.show();
     }
@@ -115,26 +123,35 @@ public class ChessApp extends Application {
             }
 
             String movingPiece = boardUI[selectedRow][selectedCol].getText();
-            if (!isValidMove(movingPiece, selectedRow, selectedCol, row, col)) {
+
+            // Check for Castling action
+            boolean isCastlingAttempt = isCastlingMove(movingPiece, selectedRow, selectedCol, row, col);
+            if (!isCastlingAttempt && !isValidMove(movingPiece, selectedRow, selectedCol, row, col)) {
                 return;
             }
 
             // SIMULATE MOVE: Test if this move leaves the friendly king in check
             String originalTargetContent = boardUI[row][col].getText();
 
-            // Apply temporary move
-            boardUI[row][col].setText(movingPiece);
-            boardUI[selectedRow][selectedCol].setText("");
+            if (isCastlingAttempt) {
+                // Perform temporary simulation for castling movement
+                if (!simulateCastling(selectedRow, selectedCol, row, col, whiteTurn)) {
+                    statusLabel.setText("Illegal move! Cannot castle through or out of check.");
+                    return;
+                }
+            } else {
+                boardUI[row][col].setText(movingPiece);
+                boardUI[selectedRow][selectedCol].setText("");
 
-            boolean isStillInCheck = isKingInCheck(whiteTurn);
+                boolean isStillInCheck = isKingInCheck(whiteTurn);
 
-            // Revert the temporary state update
-            boardUI[selectedRow][selectedCol].setText(movingPiece);
-            boardUI[row][col].setText(originalTargetContent);
+                boardUI[selectedRow][selectedCol].setText(movingPiece);
+                boardUI[row][col].setText(originalTargetContent);
 
-            if (isStillInCheck) {
-                statusLabel.setText("Illegal move! Your King remains in check.");
-                return;
+                if (isStillInCheck) {
+                    statusLabel.setText("Illegal move! Your King remains in check.");
+                    return;
+                }
             }
 
             // Game over capture check
@@ -149,23 +166,105 @@ public class ChessApp extends Application {
                 return;
             }
 
-            // Commit final move execution
-            boardUI[row][col].setText(movingPiece);
-            boardUI[selectedRow][selectedCol].setText("");
+            // EXECUTE FINAL MOVE (Handle Castling separately if valid)
+            if (isCastlingAttempt) {
+                executeCastling(selectedRow, selectedCol, row, col);
+            } else {
+                boardUI[row][col].setText(movingPiece);
+                boardUI[selectedRow][selectedCol].setText("");
+
+                // PAWN PROMOTION LOGIC
+                if (movingPiece.equals("♙") && row == 0) {
+                    boardUI[row][col].setText("♕");
+                } else if (movingPiece.equals("♟") && row == 7) {
+                    boardUI[row][col].setText("♛");
+                }
+            }
+
+            // Track piece movement states for castling rules
+            updateMovementFlags(movingPiece, selectedRow, selectedCol);
 
             resetBoardColors();
             selectedRow = -1;
             selectedCol = -1;
 
-            // Switch turn
             whiteTurn = !whiteTurn;
 
-            // Evaluate check status for the new player
             if (isKingInCheck(whiteTurn)) {
                 statusLabel.setText((whiteTurn ? "White" : "Black") + " is in CHECK!");
             } else {
                 statusLabel.setText(whiteTurn ? "White's Turn" : "Black's Turn");
             }
+        }
+    }
+
+    private boolean isCastlingMove(String piece, int sRow, int sCol, int tRow, int tCol) {
+        if (!piece.equals("♔") && !piece.equals("♚")) return false;
+        // King moves exactly 2 columns horizontally on its home row
+        return (sRow == tRow && Math.abs(sCol - tCol) == 2);
+    }
+
+    private boolean simulateCastling(int sRow, int sCol, int tRow, int tCol, boolean isWhite) {
+        // 1. King cannot castle if currently in check
+        if (isKingInCheck(isWhite)) return false;
+
+        int rookCol = (tCol > sCol) ? 7 : 0;
+        int passCol = (sCol + tCol) / 2; // Middle square the king passes through
+
+        // Check path clearance
+        int step = (tCol > sCol) ? 1 : -1;
+        int c = sCol + step;
+        while (c != rookCol) {
+            if (c != tCol && !boardUI[sRow][c].getText().isEmpty()) return false;
+            c += step;
+        }
+
+        // 2. Simulate King moving to intermediate square and check if it results in check
+        boardUI[sRow][passCol].setText(boardUI[sRow][sCol].getText());
+        boardUI[sRow][sCol].setText("");
+        boolean checkMid = isKingInCheck(isWhite);
+        boardUI[sRow][sCol].setText(boardUI[sRow][passCol].getText());
+        boardUI[sRow][passCol].setText("");
+
+        if (checkMid) return false;
+
+        // 3. Simulate King moving to final destination square
+        boardUI[tRow][tCol].setText(boardUI[sRow][sCol].getText());
+        boardUI[sRow][sCol].setText("");
+        boolean checkEnd = isKingInCheck(isWhite);
+        boardUI[sRow][sCol].setText(boardUI[tRow][tCol].getText());
+        boardUI[tRow][tCol].setText("");
+
+        return !checkEnd;
+    }
+
+    private void executeCastling(int sRow, int sCol, int tRow, int tCol) {
+        String king = boardUI[sRow][sCol].getText();
+        boardUI[sRow][sCol].setText("");
+        boardUI[tRow][tCol].setText(king);
+
+        // Move corresponding Rook
+        if (tCol > sCol) { // Kingside Castling
+            String rook = boardUI[sRow][7].getText();
+            boardUI[sRow][7].setText("");
+            boardUI[sRow][5].setText(rook);
+        } else { // Queenside Castling
+            String rook = boardUI[sRow][0].getText();
+            boardUI[sRow][0].setText("");
+            boardUI[sRow][3].setText(rook);
+        }
+    }
+
+    private void updateMovementFlags(String piece, int row, int col) {
+        if (piece.equals("♔")) whiteKingMoved = true;
+        if (piece.equals("♚")) blackKingMoved = true;
+        if (piece.equals("♖")) {
+            if (row == 7 && col == 0) whiteRookA1Moved = true;
+            if (row == 7 && col == 7) whiteRookH1Moved = true;
+        }
+        if (piece.equals("♜")) {
+            if (row == 0 && col == 0) blackRookA8Moved = true;
+            if (row == 0 && col == 7) blackRookH8Moved = true;
         }
     }
 
@@ -264,15 +363,58 @@ public class ChessApp extends Application {
                 break;
             case "♔":
             case "♚":
-                legalGeometry = Math.abs(sRow - tRow) <= 1 && Math.abs(sCol - tCol) <= 1;
-                if (!legalGeometry) statusLabel.setText("King can only move 1 square.");
-                break;
+                // Check standard single square move OR castling rules
+                if (Math.abs(sRow - tRow) <= 1 && Math.abs(sCol - tCol) <= 1) {
+                    return true;
+                }
+                if (sRow == tRow && Math.abs(sCol - tCol) == 2) {
+                    return validateCastlingRules(isWhite, sCol, tCol);
+                }
+                statusLabel.setText("King can only move 1 square or castle.");
+                return false;
             case "♙":
             case "♟":
                 legalGeometry = validatePawnMove(sRow, sCol, tRow, tCol, isWhite);
                 break;
         }
         return legalGeometry;
+    }
+
+    private boolean validateCastlingRules(boolean isWhite, int sCol, int tCol) {
+        if (isWhite) {
+            if (whiteKingMoved) {
+                statusLabel.setText("Cannot castle: King has already moved.");
+                return false;
+            }
+            if (tCol > sCol) { // Kingside
+                if (whiteRookH1Moved) {
+                    statusLabel.setText("Cannot castle: Kingside Rook has moved.");
+                    return false;
+                }
+            } else { // Queenside
+                if (whiteRookA1Moved) {
+                    statusLabel.setText("Cannot castle: Queenside Rook has moved.");
+                    return false;
+                }
+            }
+        } else {
+            if (blackKingMoved) {
+                statusLabel.setText("Cannot castle: King has already moved.");
+                return false;
+            }
+            if (tCol > sCol) { // Kingside
+                if (blackRookH8Moved) {
+                    statusLabel.setText("Cannot castle: Kingside Rook has moved.");
+                    return false;
+                }
+            } else { // Queenside
+                if (blackRookA8Moved) {
+                    statusLabel.setText("Cannot castle: Queenside Rook has moved.");
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private boolean validatePawnMove(int sRow, int sCol, int tRow, int tCol, boolean isWhite) {
