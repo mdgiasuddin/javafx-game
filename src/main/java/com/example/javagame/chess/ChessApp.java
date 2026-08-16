@@ -1,7 +1,6 @@
 package com.example.javagame.chess;
 
 import javafx.application.Application;
-import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
@@ -11,6 +10,8 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.stage.Stage;
+
+import static javafx.geometry.Pos.CENTER;
 
 public class ChessApp extends Application {
 
@@ -48,7 +49,7 @@ public class ChessApp extends Application {
     @Override
     public void start(Stage primaryStage) {
         GridPane gridPane = new GridPane();
-        gridPane.setAlignment(Pos.CENTER);
+        gridPane.setAlignment(CENTER);
 
         for (int row = 0; row < BOARD_SIZE; row++) {
             for (int col = 0; col < BOARD_SIZE; col++) {
@@ -58,7 +59,7 @@ public class ChessApp extends Application {
         }
 
         VBox mainLayout = new VBox(15);
-        mainLayout.setAlignment(Pos.CENTER);
+        mainLayout.setAlignment(CENTER);
 
         statusLabel = new Label("White's Turn");
         statusLabel.setFont(Font.font("Arial", 20));
@@ -66,7 +67,7 @@ public class ChessApp extends Application {
         mainLayout.getChildren().addAll(statusLabel, gridPane);
 
         Scene scene = new Scene(mainLayout, 900, 950);
-        primaryStage.setTitle("JavaFX Chess - Castling Added");
+        primaryStage.setTitle("Chess Game");
         primaryStage.setScene(scene);
         primaryStage.show();
     }
@@ -81,7 +82,7 @@ public class ChessApp extends Application {
         bgTiles[row][col] = bg;
 
         Label pieceLabel = new Label(INITIAL_BOARD[row][col]);
-        pieceLabel.setFont(Font.font("Arial", 48));
+        pieceLabel.setFont(Font.font("Arial", 72));
         boardUI[row][col] = pieceLabel;
 
         stack.getChildren().addAll(bg, pieceLabel);
