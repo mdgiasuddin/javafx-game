@@ -17,9 +17,6 @@ public class ChessApp extends Application {
     private static final int BOARD_SIZE = 8;
     private static final int TILE_SIZE = 80;
 
-    // Unicode symbols for chess pieces
-    // White: ♙ ♖ ♘ ♗ ♕ ♔
-    // Black: ♟ ♜ ♞ ♝ ♛ ♚
     private static final String[][] INITIAL_BOARD = {
             {"♜", "♞", "♝", "♛", "♚", "♝", "♞", "♜"},
             {"♟", "♟", "♟", "♟", "♟", "♟", "♟", "♟"},
@@ -37,6 +34,7 @@ public class ChessApp extends Application {
     private int selectedRow = -1;
     private int selectedCol = -1;
     private boolean whiteTurn = true;
+    private boolean gameOver = false;
     private Label statusLabel;
 
     @Override
@@ -60,7 +58,7 @@ public class ChessApp extends Application {
         mainLayout.getChildren().addAll(statusLabel, gridPane);
 
         Scene scene = new Scene(mainLayout, 700, 750);
-        primaryStage.setTitle("JavaFX Chess - Full Rule Validation");
+        primaryStage.setTitle("JavaFX Chess - Legal Check Evasion");
         primaryStage.setScene(scene);
         primaryStage.show();
     }
@@ -85,6 +83,8 @@ public class ChessApp extends Application {
     }
 
     private void handleTileClick(int row, int col) {
+        if (gameOver) return;
+
         String clickedPiece = boardUI[row][col].getText();
 
         if (selectedRow == -1) {
@@ -114,19 +114,42 @@ public class ChessApp extends Application {
                 return;
             }
 
-            // Execute move validation check
             String movingPiece = boardUI[selectedRow][selectedCol].getText();
             if (!isValidMove(movingPiece, selectedRow, selectedCol, row, col)) {
-                return; // Rejects move and leaves error message in statusLabel
-            }
-
-            // Prevent capturing own piece
-            if (!clickedPiece.isEmpty() && isCurrentPlayerPiece(clickedPiece)) {
-                statusLabel.setText("Invalid move! Cannot capture your own piece.");
                 return;
             }
 
-            // Execute the move
+            // SIMULATE MOVE: Test if this move leaves the friendly king in check
+            String originalTargetContent = boardUI[row][col].getText();
+
+            // Apply temporary move
+            boardUI[row][col].setText(movingPiece);
+            boardUI[selectedRow][selectedCol].setText("");
+
+            boolean isStillInCheck = isKingInCheck(whiteTurn);
+
+            // Revert the temporary state update
+            boardUI[selectedRow][selectedCol].setText(movingPiece);
+            boardUI[row][col].setText(originalTargetContent);
+
+            if (isStillInCheck) {
+                statusLabel.setText("Illegal move! Your King remains in check.");
+                return;
+            }
+
+            // Game over capture check
+            if (originalTargetContent.equals("♔") || originalTargetContent.equals("♚")) {
+                boardUI[row][col].setText(movingPiece);
+                boardUI[selectedRow][selectedCol].setText("");
+                resetBoardColors();
+
+                String winner = whiteTurn ? "White" : "Black";
+                statusLabel.setText("Checkmate! " + winner + " wins the game!");
+                gameOver = true;
+                return;
+            }
+
+            // Commit final move execution
             boardUI[row][col].setText(movingPiece);
             boardUI[selectedRow][selectedCol].setText("");
 
@@ -134,8 +157,73 @@ public class ChessApp extends Application {
             selectedRow = -1;
             selectedCol = -1;
 
+            // Switch turn
             whiteTurn = !whiteTurn;
-            statusLabel.setText(whiteTurn ? "White's Turn" : "Black's Turn");
+
+            // Evaluate check status for the new player
+            if (isKingInCheck(whiteTurn)) {
+                statusLabel.setText((whiteTurn ? "White" : "Black") + " is in CHECK!");
+            } else {
+                statusLabel.setText(whiteTurn ? "White's Turn" : "Black's Turn");
+            }
+        }
+    }
+
+    private boolean isKingInCheck(boolean isWhiteKing) {
+        String kingSymbol = isWhiteKing ? "♔" : "♚";
+        int kingRow = -1, kingCol = -1;
+
+        outer:
+        for (int r = 0; r < BOARD_SIZE; r++) {
+            for (int c = 0; c < BOARD_SIZE; c++) {
+                if (boardUI[r][c].getText().equals(kingSymbol)) {
+                    kingRow = r;
+                    kingCol = c;
+                    break outer;
+                }
+            }
+        }
+
+        if (kingRow == -1) return false;
+
+        for (int r = 0; r < BOARD_SIZE; r++) {
+            for (int c = 0; c < BOARD_SIZE; c++) {
+                String piece = boardUI[r][c].getText();
+                if (!piece.isEmpty() && isPieceOfColor(piece, !isWhiteKing)) {
+                    if (isValidMoveSimulation(piece, r, c, kingRow, kingCol)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isValidMoveSimulation(String piece, int sRow, int sCol, int tRow, int tCol) {
+        switch (piece) {
+            case "♖":
+            case "♜":
+                return (sRow == tRow || sCol == tCol) && isPathClear(sRow, sCol, tRow, tCol);
+            case "♗":
+            case "♝":
+                return (Math.abs(sRow - tRow) == Math.abs(sCol - tCol)) && isPathClear(sRow, sCol, tRow, tCol);
+            case "♕":
+            case "♛":
+                return ((sRow == tRow || sCol == tCol) || Math.abs(sRow - tRow) == Math.abs(sCol - tCol)) && isPathClear(sRow, sCol, tRow, tCol);
+            case "♘":
+            case "♞":
+                int rDiff = Math.abs(sRow - tRow);
+                int cDiff = Math.abs(sCol - tCol);
+                return (rDiff == 2 && cDiff == 1) || (rDiff == 1 && cDiff == 2);
+            case "♔":
+            case "♚":
+                return Math.abs(sRow - tRow) <= 1 && Math.abs(sCol - tCol) <= 1;
+            case "♙":
+            case "♟":
+                int dir = piece.equals("♙") ? -1 : 1;
+                return Math.abs(sCol - tCol) == 1 && tRow == sRow + dir;
+            default:
+                return false;
         }
     }
 
@@ -143,78 +231,48 @@ public class ChessApp extends Application {
         boolean isWhite = "♙♖♘♗♕♔".contains(piece);
         String targetPiece = boardUI[tRow][tCol].getText();
 
-        // Cannot capture friendly pieces
         if (!targetPiece.isEmpty() && isCurrentPlayerPiece(targetPiece) == isCurrentPlayerPiece(piece)) {
             statusLabel.setText("Invalid move! Target square is occupied by a friendly piece.");
             return false;
         }
 
+        boolean legalGeometry = false;
         switch (piece) {
             case "♖":
-            case "♜": // Rook
-                if (sRow != tRow && sCol != tCol) {
-                    statusLabel.setText("Rooks move only in straight lines.");
-                    return false;
-                }
-                if (!isPathClear(sRow, sCol, tRow, tCol)) {
-                    statusLabel.setText("Path is blocked.");
-                    return false;
-                }
-                return true;
-
+            case "♜":
+                legalGeometry = (sRow == tRow || sCol == tCol) && isPathClear(sRow, sCol, tRow, tCol);
+                if (!legalGeometry) statusLabel.setText("Rooks move straight and paths must be clear.");
+                break;
             case "♗":
-            case "♝": // Bishop
-                if (Math.abs(sRow - tRow) != Math.abs(sCol - tCol)) {
-                    statusLabel.setText("Bishops move only diagonally.");
-                    return false;
-                }
-                if (!isPathClear(sRow, sCol, tRow, tCol)) {
-                    statusLabel.setText("Path is blocked.");
-                    return false;
-                }
-                return true;
-
+            case "♝":
+                legalGeometry = (Math.abs(sRow - tRow) == Math.abs(sCol - tCol)) && isPathClear(sRow, sCol, tRow, tCol);
+                if (!legalGeometry) statusLabel.setText("Bishops move diagonally and paths must be clear.");
+                break;
             case "♕":
-            case "♛": // Queen (Rook + Bishop combination)
-                boolean isStraight = (sRow == tRow || sCol == tCol);
-                boolean isDiagonal = (Math.abs(sRow - tRow) == Math.abs(sCol - tCol));
-                if (!isStraight && !isDiagonal) {
-                    statusLabel.setText("Queen moves straight or diagonally.");
-                    return false;
-                }
-                if (!isPathClear(sRow, sCol, tRow, tCol)) {
-                    statusLabel.setText("Path is blocked.");
-                    return false;
-                }
-                return true;
-
+            case "♛":
+                boolean straight = (sRow == tRow || sCol == tCol);
+                boolean diag = (Math.abs(sRow - tRow) == Math.abs(sCol - tCol));
+                legalGeometry = (straight || diag) && isPathClear(sRow, sCol, tRow, tCol);
+                if (!legalGeometry) statusLabel.setText("Queen move blocked or invalid.");
+                break;
             case "♘":
-            case "♞": // Knight
+            case "♞":
                 int rowDiff = Math.abs(sRow - tRow);
                 int colDiff = Math.abs(sCol - tCol);
-                if (!((rowDiff == 2 && colDiff == 1) || (rowDiff == 1 && colDiff == 2))) {
-                    statusLabel.setText("Invalid L-shape knight move.");
-                    return false;
-                }
-                return true;
-
+                legalGeometry = (rowDiff == 2 && colDiff == 1) || (rowDiff == 1 && colDiff == 2);
+                if (!legalGeometry) statusLabel.setText("Invalid L-shape knight move.");
+                break;
             case "♔":
-            case "♚": // King
-                if (Math.abs(sRow - tRow) > 1 || Math.abs(sCol - tCol) > 1) {
-                    statusLabel.setText("King can only move 1 square in any direction.");
-                    return false;
-                }
-                return true;
-
-            case "♙": // White Pawn
-                return validatePawnMove(sRow, sCol, tRow, tCol, true);
-
-            case "♟": // Black Pawn
-                return validatePawnMove(sRow, sCol, tRow, tCol, false);
-
-            default:
-                return false;
+            case "♚":
+                legalGeometry = Math.abs(sRow - tRow) <= 1 && Math.abs(sCol - tCol) <= 1;
+                if (!legalGeometry) statusLabel.setText("King can only move 1 square.");
+                break;
+            case "♙":
+            case "♟":
+                legalGeometry = validatePawnMove(sRow, sCol, tRow, tCol, isWhite);
+                break;
         }
+        return legalGeometry;
     }
 
     private boolean validatePawnMove(int sRow, int sCol, int tRow, int tCol, boolean isWhite) {
@@ -222,21 +280,11 @@ public class ChessApp extends Application {
         int startRow = isWhite ? 6 : 1;
         String targetPiece = boardUI[tRow][tCol].getText();
 
-        // 1. Move forward 1 square
-        if (sCol == tCol && tRow == sRow + direction && targetPiece.isEmpty()) {
-            return true;
-        }
-        // 2. Move forward 2 squares from starting rank
+        if (sCol == tCol && tRow == sRow + direction && targetPiece.isEmpty()) return true;
         if (sCol == tCol && sRow == startRow && tRow == sRow + (2 * direction)) {
-            int midRow = sRow + direction;
-            if (targetPiece.isEmpty() && boardUI[midRow][sCol].getText().isEmpty()) {
-                return true;
-            }
+            if (targetPiece.isEmpty() && boardUI[sRow + direction][sCol].getText().isEmpty()) return true;
         }
-        // 3. Diagonal capture
-        if (Math.abs(sCol - tCol) == 1 && tRow == sRow + direction && !targetPiece.isEmpty()) {
-            return true;
-        }
+        if (Math.abs(sCol - tCol) == 1 && tRow == sRow + direction && !targetPiece.isEmpty()) return true;
 
         statusLabel.setText("Invalid pawn move.");
         return false;
@@ -260,9 +308,13 @@ public class ChessApp extends Application {
     }
 
     private boolean isCurrentPlayerPiece(String piece) {
+        return isPieceOfColor(piece, whiteTurn);
+    }
+
+    private boolean isPieceOfColor(String piece, boolean white) {
         boolean isWhitePiece = "♙♖♘♗♕♔".contains(piece);
         boolean isBlackPiece = "♟♜♞♝♛♚".contains(piece);
-        return (whiteTurn && isWhitePiece) || (!whiteTurn && isBlackPiece);
+        return (white && isWhitePiece) || (!white && isBlackPiece);
     }
 
     private void resetBoardColors() {
