@@ -21,7 +21,7 @@ import java.net.Socket;
 public class ChessNetworkApp extends Application {
 
     private static final int BOARD_SIZE = 8;
-    private static final int TILE_SIZE = 80;
+    private static final int TILE_SIZE = 100;
 
     private static final String[][] INITIAL_BOARD = {
             {"♜", "♞", "♝", "♛", "♚", "♝", "♞", "♜"},
@@ -42,20 +42,16 @@ public class ChessNetworkApp extends Application {
     private boolean whiteTurn = true;
     private boolean gameOver = false;
     private Label statusLabel;
+    private GridPane gridPane; // Field reference for rotation updates
 
-    // Networking fields
-    private Socket socket;
     private PrintWriter out;
     private BufferedReader in;
     private boolean isMyTurn = false;
-    private boolean playerIsWhite = true; // Assigned by server
+    private boolean playerIsWhite = true;
 
     @Override
     public void start(Stage primaryStage) {
-        // Connect to server (change "127.0.0.1" to your server IP if running on separate machines)
-        setupNetworking("127.0.0.1", 12345);
-
-        GridPane gridPane = new GridPane();
+        gridPane = new GridPane();
         gridPane.setAlignment(Pos.CENTER);
 
         for (int row = 0; row < BOARD_SIZE; row++) {
@@ -73,33 +69,48 @@ public class ChessNetworkApp extends Application {
 
         mainLayout.getChildren().addAll(statusLabel, gridPane);
 
-        Scene scene = new Scene(mainLayout, 700, 750);
+        Scene scene = new Scene(mainLayout, 900, 950);
         primaryStage.setTitle("JavaFX Networked Chess");
         primaryStage.setScene(scene);
         primaryStage.show();
+
+        // Connect to server after UI builds
+        setupNetworking("127.0.0.1", 12345);
     }
 
     private void setupNetworking(String address, int port) {
         try {
-            socket = new Socket(address, port);
+            // Networking fields
+            Socket socket = new Socket(address, port);
             out = new PrintWriter(socket.getOutputStream(), true);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            // Read assigned color from server
             String colorAssignment = in.readLine();
             if ("WHITE".equals(colorAssignment)) {
                 playerIsWhite = true;
                 isMyTurn = true;
+                Platform.runLater(() -> statusLabel.setText("Your Turn (White)"));
             } else {
                 playerIsWhite = false;
                 isMyTurn = false;
+
+                // ROTATE BOARD FOR BLACK PLAYER PERSPECTIVE
+                Platform.runLater(() -> {
+                    gridPane.setRotate(180);
+                    // Also rotate individual text labels back 180 degrees so the text characters themselves aren't upside down
+                    for (int r = 0; r < BOARD_SIZE; r++) {
+                        for (int c = 0; c < BOARD_SIZE; c++) {
+                            boardUI[r][c].setRotate(180);
+                        }
+                    }
+                    statusLabel.setText("Opponent's Turn (Black)");
+                });
             }
 
-            // Start background thread to listen for incoming opponent moves
             new Thread(new IncomingReader()).start();
 
         } catch (Exception e) {
-            System.out.println("Could not connect to server: " + e.getMessage());
+            Platform.runLater(() -> statusLabel.setText("Could not connect to server."));
         }
     }
 
@@ -113,7 +124,7 @@ public class ChessNetworkApp extends Application {
         bgTiles[row][col] = bg;
 
         Label pieceLabel = new Label(INITIAL_BOARD[row][col]);
-        pieceLabel.setFont(Font.font("Arial", 48));
+        pieceLabel.setFont(Font.font("Arial", 72));
         boardUI[row][col] = pieceLabel;
 
         stack.getChildren().addAll(bg, pieceLabel);
@@ -125,7 +136,6 @@ public class ChessNetworkApp extends Application {
     private void handleTileClick(int row, int col) {
         if (gameOver) return;
 
-        // Block input if it's not the local player's turn
         if (!isMyTurn) {
             statusLabel.setText("Not your turn!");
             return;
@@ -148,7 +158,7 @@ public class ChessNetworkApp extends Application {
                 resetBoardColors();
                 selectedRow = -1;
                 selectedCol = -1;
-                statusLabel.setText(whiteTurn ? "White's Turn" : "Black's Turn");
+                statusLabel.setText("Your Turn");
                 return;
             }
 
@@ -165,7 +175,6 @@ public class ChessNetworkApp extends Application {
                 return;
             }
 
-            // Simulate move to check safety
             String originalTargetContent = boardUI[row][col].getText();
             boardUI[row][col].setText(movingPiece);
             boardUI[selectedRow][selectedCol].setText("");
@@ -180,14 +189,11 @@ public class ChessNetworkApp extends Application {
                 return;
             }
 
-            // Send move to server (Format: startRow,startCol,targetRow,targetCol)
             String moveMessage = selectedRow + "," + selectedCol + "," + row + "," + col;
             out.println(moveMessage);
 
-            // Execute local update
             executeMoveLocally(selectedRow, selectedCol, row, col);
-
-            isMyTurn = false; // Lock out until opponent replies
+            isMyTurn = false;
         }
     }
 
@@ -207,7 +213,6 @@ public class ChessNetworkApp extends Application {
         boardUI[tRow][tCol].setText(movingPiece);
         boardUI[sRow][sCol].setText("");
 
-        // Pawn promotion check
         if (movingPiece.equals("♙") && tRow == 0) boardUI[tRow][tCol].setText("♕");
         if (movingPiece.equals("♟") && tRow == 7) boardUI[tRow][tCol].setText("♛");
 
@@ -216,7 +221,8 @@ public class ChessNetworkApp extends Application {
         selectedCol = -1;
         whiteTurn = !whiteTurn;
 
-        statusLabel.setText(isMyTurn ? "Your Turn" : "Opponent's Turn");
+        boolean isMyColorTurn = (whiteTurn == playerIsWhite);
+        statusLabel.setText(isMyColorTurn ? "Your Turn" : "Opponent's Turn");
     }
 
     private class IncomingReader implements Runnable {
@@ -231,11 +237,10 @@ public class ChessNetworkApp extends Application {
                     int tRow = Integer.parseInt(parts[2]);
                     int tCol = Integer.parseInt(parts[3]);
 
-                    // Update UI on the JavaFX thread
                     Platform.runLater(() -> {
                         executeMoveLocally(sRow, sCol, tRow, tCol);
-                        isMyTurn = true; // Unlock your turn
-                        statusLabel.setText(whiteTurn == playerIsWhite ? "Your Turn" : "Opponent's Turn");
+                        isMyTurn = true;
+                        statusLabel.setText("Your Turn");
                     });
                 }
             } catch (Exception e) {
@@ -244,7 +249,6 @@ public class ChessNetworkApp extends Application {
         }
     }
 
-    // Reuse validation engine methods from previous implementations
     private boolean isCurrentPlayerPiece(String piece) {
         return isPieceOfColor(piece, whiteTurn);
     }
@@ -256,34 +260,23 @@ public class ChessNetworkApp extends Application {
     }
 
     private boolean isValidMove(String piece, int sRow, int sCol, int tRow, int tCol) {
-        // (Uses the exact same rule-checking switch logic from the previous iteration)
         boolean isWhite = "♙♖♘♗♕♔".contains(piece);
         String targetPiece = boardUI[tRow][tCol].getText();
         if (!targetPiece.isEmpty() && isCurrentPlayerPiece(targetPiece) == isCurrentPlayerPiece(piece)) return false;
 
-        switch (piece) {
-            case "♖":
-            case "♜":
-                return (sRow == tRow || sCol == tCol) && isPathClear(sRow, sCol, tRow, tCol);
-            case "♗":
-            case "♝":
-                return (Math.abs(sRow - tRow) == Math.abs(sCol - tCol)) && isPathClear(sRow, sCol, tRow, tCol);
-            case "♕":
-            case "♛":
-                return ((sRow == tRow || sCol == tCol) || Math.abs(sRow - tRow) == Math.abs(sCol - tCol)) && isPathClear(sRow, sCol, tRow, tCol);
-            case "♘":
-            case "♞":
+        final boolean isValidDiagonal = Math.abs(sRow - tRow) == Math.abs(sCol - tCol);
+        return switch (piece) {
+            case "♖", "♜" -> (sRow == tRow || sCol == tCol) && isPathClear(sRow, sCol, tRow, tCol);
+            case "♗", "♝" -> isValidDiagonal && isPathClear(sRow, sCol, tRow, tCol);
+            case "♕", "♛" -> ((sRow == tRow || sCol == tCol) || isValidDiagonal) && isPathClear(sRow, sCol, tRow, tCol);
+            case "♘", "♞" -> {
                 int rD = Math.abs(sRow - tRow), cD = Math.abs(sCol - tCol);
-                return (rD == 2 && cD == 1) || (rD == 1 && cD == 2);
-            case "♔":
-            case "♚":
-                return Math.abs(sRow - tRow) <= 1 && Math.abs(sCol - tCol) <= 1;
-            case "♙":
-            case "♟":
-                return validatePawnMove(sRow, sCol, tRow, tCol, isWhite);
-            default:
-                return false;
-        }
+                yield (rD == 2 && cD == 1) || (rD == 1 && cD == 2);
+            }
+            case "♔", "♚" -> Math.abs(sRow - tRow) <= 1 && Math.abs(sCol - tCol) <= 1;
+            case "♙", "♟" -> validatePawnMove(sRow, sCol, tRow, tCol, isWhite);
+            default -> false;
+        };
     }
 
     private boolean validatePawnMove(int sRow, int sCol, int tRow, int tCol, boolean isWhite) {
