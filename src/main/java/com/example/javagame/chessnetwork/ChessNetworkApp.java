@@ -19,6 +19,7 @@ import java.io.PrintWriter;
 import java.net.Socket;
 
 import static javafx.geometry.Pos.CENTER;
+import static javafx.scene.paint.Color.WHITE;
 import static javafx.scene.text.FontWeight.BOLD;
 
 public class ChessNetworkApp extends Application {
@@ -91,7 +92,7 @@ public class ChessNetworkApp extends Application {
 
         statusLabel = new Label("Connecting to server...");
         statusLabel.setFont(Font.font("Arial", BOLD, 18));
-        statusLabel.setTextFill(Color.WHITE);
+        statusLabel.setTextFill(WHITE);
 
         statusContainer = new VBox(statusLabel);
         statusContainer.setAlignment(CENTER);
