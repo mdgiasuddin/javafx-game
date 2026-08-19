@@ -55,12 +55,12 @@ public class CaromGame extends Application {
     private static final double MAX_DRAG = 150;
 
     /**
-     * Speeds are in pixels per frame at 60fps. A full-power strike leaves at about 420px/s and
-     * needs well over a second just to cross the board, so shots read as a deliberate glide
-     * rather than a flick.
+     * Speeds are in pixels per frame at 60fps. A full-power strike leaves at about 525px/s and
+     * takes roughly a second to cross the board, so shots still read as a glide rather than a
+     * flick.
      */
-    private static final double MAX_SPEED = 7.0;
-    private static final double MIN_SPEED = 0.6;
+    private static final double MAX_SPEED = 11.25;
+    private static final double MIN_SPEED = 0.9;
 
     /**
      * Coins slide, they do not roll, so the board takes a fixed bite out of the speed every
@@ -69,7 +69,7 @@ public class CaromGame extends Application {
      * instead of creeping towards zero forever the way a multiplicative decay does. Kept low
      * so a hard shot stays alive for several seconds.
      */
-    private static final double DECELERATION = 0.024;
+    private static final double DECELERATION = 0.031;
 
     private static final double CUSHION_BOUNCE = 0.74;
     private static final double COIN_BOUNCE = 0.94;
