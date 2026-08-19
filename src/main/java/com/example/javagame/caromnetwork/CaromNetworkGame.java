@@ -21,6 +21,7 @@ import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
+import javafx.scene.transform.Rotate;
 import javafx.stage.Stage;
 
 import java.io.BufferedReader;
@@ -110,6 +111,7 @@ public class CaromNetworkGame extends Application {
 
     private Pane root;
     private Group boardGroup;
+    private Rotate boardRotation;
     private Group pieceLayer;
     private final List<CaromPiece> pieces = new ArrayList<>();
     private CaromPiece striker;
@@ -149,7 +151,10 @@ public class CaromNetworkGame extends Application {
     public void start(Stage primaryStage) {
         root = new Pane();
         root.setFocusTraversable(true);
+
         boardGroup = new Group();
+        boardRotation = new Rotate(0, WIDTH / 2, HEIGHT / 2);
+        boardGroup.getTransforms().add(boardRotation);
         root.getChildren().add(boardGroup);
 
         Scene scene = new Scene(root, WIDTH, HEIGHT);
@@ -241,11 +246,9 @@ public class CaromNetworkGame extends Application {
         p1.name = playerIsWhite ? "You" : "Opponent";
         p2.name = playerIsWhite ? "Opponent" : "You";
 
-        if (!playerIsWhite) {
-            boardGroup.setRotate(180);
-            boardGroup.setLayoutX(WIDTH);
-            boardGroup.setLayoutY(HEIGHT);
-        }
+        boardRotation.setAngle(playerIsWhite ? 0 : 180);
+        boardGroup.setLayoutX(0);
+        boardGroup.setLayoutY(0);
 
         updateHud();
         updateTurnText();
@@ -291,23 +294,69 @@ public class CaromNetworkGame extends Application {
                         continue;
                     }
 
+                    if (line.startsWith("STATE|")) {
+                        String stateMessage = line;
+                        Platform.runLater(() -> applyStateMessage(stateMessage));
+                        continue;
+                    }
+
+                    if (line.startsWith("PLACE|")) {
+                        String[] parts = line.split("\\|");
+                        if (parts.length != 3) {
+                            Platform.runLater(() -> showNetworkError("Received invalid striker placement."));
+                            break;
+                        }
+
+                        double strikerX = Double.parseDouble(parts[1]);
+                        double strikerY = Double.parseDouble(parts[2]);
+
+                        Platform.runLater(() -> applyRemoteStrikerPlacement(strikerX, strikerY));
+                        continue;
+                    }
+
+                    if (line.startsWith("AIM|")) {
+                        String[] parts = line.split("\\|");
+                        if (parts.length != 6) {
+                            Platform.runLater(() -> showNetworkError("Received invalid aim data."));
+                            break;
+                        }
+
+                        double strikerX = Double.parseDouble(parts[1]);
+                        double strikerY = Double.parseDouble(parts[2]);
+                        double dirX = Double.parseDouble(parts[3]);
+                        double dirY = Double.parseDouble(parts[4]);
+                        double power = Double.parseDouble(parts[5]);
+
+                        Platform.runLater(() -> {
+                            applyRemoteStrikerPlacement(strikerX, strikerY);
+                            showRemoteAimVisuals(strikerX, strikerY, dirX, dirY, power);
+                        });
+                        continue;
+                    }
+
+                    if ("CLEAR_AIM".equals(line)) {
+                        Platform.runLater(CaromNetworkGame.this::hideAimVisuals);
+                        continue;
+                    }
+
                     if (!line.startsWith("SHOT|")) {
                         Platform.runLater(() -> showNetworkError("Received invalid carom message."));
                         break;
                     }
 
                     String[] parts = line.split("\\|");
-                    if (parts.length != 5) {
+                    if (parts.length != 6) {
                         Platform.runLater(() -> showNetworkError("Received invalid shot data."));
                         break;
                     }
 
                     double strikerX = Double.parseDouble(parts[1]);
-                    double dirX = Double.parseDouble(parts[2]);
-                    double dirY = Double.parseDouble(parts[3]);
-                    double speed = Double.parseDouble(parts[4]);
+                    double strikerY = Double.parseDouble(parts[2]);
+                    double dirX = Double.parseDouble(parts[3]);
+                    double dirY = Double.parseDouble(parts[4]);
+                    double speed = Double.parseDouble(parts[5]);
 
-                    Platform.runLater(() -> applyRemoteShot(strikerX, dirX, dirY, speed));
+                    Platform.runLater(() -> applyRemoteShot(strikerX, strikerY, dirX, dirY, speed));
                 }
             } catch (IOException e) {
                 Platform.runLater(() -> showNetworkError("Connection lost with opponent."));
@@ -319,16 +368,98 @@ public class CaromNetworkGame extends Application {
         }
     }
 
-    private void applyRemoteShot(double strikerX, double dirX, double dirY, double speed) {
+    private void applyStateMessage(String line) {
+        String[] parts = line.split("\\|");
+
+        if (parts.length < 10) {
+            showNetworkError("Received invalid board state.");
+            return;
+        }
+
+        try {
+            int index = 1;
+
+            player1Turn = Boolean.parseBoolean(parts[index++]);
+            p1.pocketed = Integer.parseInt(parts[index++]);
+            p2.pocketed = Integer.parseInt(parts[index++]);
+            queenOnBoard = Boolean.parseBoolean(parts[index++]);
+            queenOwner = playerFromIndex(Integer.parseInt(parts[index++]));
+            queenPendingCoverBy = playerFromIndex(Integer.parseInt(parts[index++]));
+            phase = Phase.valueOf(parts[index++]);
+
+            int pieceCount = Integer.parseInt(parts[index++]);
+
+            pieces.clear();
+            pieceLayer.getChildren().clear();
+
+            for (int i = 0; i < pieceCount; i++) {
+                CaromPiece piece = parsePiece(parts[index++]);
+                addPiece(piece);
+            }
+
+            striker = parsePiece(parts[index]);
+            addPiece(striker);
+
+            dragMode = DragMode.NONE;
+            hideAimVisuals();
+
+            strikerZone.setY(baselineY(player1Turn) - STRIKER_RADIUS);
+            strikerZone.setVisible(phase != Phase.GAME_OVER);
+
+            updateHud();
+            updateTurnText();
+        } catch (RuntimeException e) {
+            showNetworkError("Received corrupted board state.");
+        }
+    }
+
+    private Player playerFromIndex(int index) {
+        return switch (index) {
+            case 1 -> p1;
+            case 2 -> p2;
+            default -> null;
+        };
+    }
+
+    private CaromPiece parsePiece(String encodedPiece) {
+        String[] values = encodedPiece.split(",");
+
+        if (values.length != 5) {
+            throw new IllegalArgumentException("Invalid piece data");
+        }
+
+        Kind kind = Kind.valueOf(values[0]);
+        double x = Double.parseDouble(values[1]);
+        double y = Double.parseDouble(values[2]);
+        double vx = Double.parseDouble(values[3]);
+        double vy = Double.parseDouble(values[4]);
+
+        double radius = kind == Kind.STRIKER ? STRIKER_RADIUS : COIN_RADIUS;
+        CaromPiece piece = new CaromPiece(x, y, radius, kind);
+        piece.vx = vx;
+        piece.vy = vy;
+        piece.updateNodePosition();
+
+        return piece;
+    }
+
+    private void applyRemoteShot(double strikerX, double strikerY, double dirX, double dirY, double speed) {
         if (phase != Phase.READY || gameEnded()) {
             return;
         }
 
         applyingRemoteShot = true;
 
-        placeStrikerAt(strikerX);
+        if (!pieces.contains(striker)) {
+            striker = new CaromPiece(strikerX, strikerY, STRIKER_RADIUS, Kind.STRIKER);
+            addPiece(striker);
+        }
+
+        striker.x = nearestLegalStrikerX(strikerX, strikerY);
+        striker.y = strikerY;
         striker.vx = dirX * speed;
         striker.vy = dirY * speed;
+        striker.updateNodePosition();
 
         pocketedThisShot.clear();
         strikerPocketedThisShot = false;
@@ -415,11 +546,11 @@ public class CaromNetworkGame extends Application {
     }
 
     private double boardMouseX(MouseEvent e) {
-        return playerIsWhite ? e.getX() : WIDTH - e.getX();
+        return boardGroup.sceneToLocal(e.getSceneX(), e.getSceneY()).getX();
     }
 
     private double boardMouseY(MouseEvent e) {
-        return playerIsWhite ? e.getY() : HEIGHT - e.getY();
+        return boardGroup.sceneToLocal(e.getSceneX(), e.getSceneY()).getY();
     }
 
     // =====================================================================================
@@ -431,7 +562,8 @@ public class CaromNetworkGame extends Application {
         bg.setFill(new LinearGradient(0, 0, 0, 1, true, CycleMethod.NO_CYCLE,
                 new Stop(0, Color.web("#12122a")),
                 new Stop(1, Color.web("#1f1f3d"))));
-        root.getChildren().add(bg);
+
+        root.getChildren().add(0, bg);
     }
 
     private void buildBoard() {
@@ -715,9 +847,50 @@ public class CaromNetworkGame extends Application {
 
         if (inBand && !onStriker) {
             placeStrikerAt(mouseX);
+            sendMessage("PLACE|" + striker.x + "|" + striker.y);
         }
 
         dragMode = (onStriker || inBand) ? DragMode.UNDECIDED : DragMode.NONE;
+    }
+
+    private void applyRemoteStrikerPlacement(double strikerX, double strikerY) {
+        if (phase != Phase.READY || gameEnded()) {
+            return;
+        }
+
+        if (!pieces.contains(striker)) {
+            striker = new CaromPiece(strikerX, strikerY, STRIKER_RADIUS, Kind.STRIKER);
+            addPiece(striker);
+        }
+
+        striker.x = nearestLegalStrikerX(strikerX, strikerY);
+        striker.y = strikerY;
+        striker.vx = 0;
+        striker.vy = 0;
+        striker.updateNodePosition();
+    }
+
+    private void showRemoteAimVisuals(double strikerX, double strikerY, double dirX, double dirY, double power) {
+        double guideLen = 55 + power * 190;
+
+        aimLine.setStartX(strikerX);
+        aimLine.setStartY(strikerY);
+        aimLine.setEndX(strikerX + dirX * guideLen);
+        aimLine.setEndY(strikerY + dirY * guideLen);
+        aimLine.setVisible(true);
+
+        aimTip.setCenterX(strikerX + dirX * guideLen);
+        aimTip.setCenterY(strikerY + dirY * guideLen);
+        aimTip.setVisible(true);
+
+        double pull = power * MAX_DRAG;
+        dragLine.setStartX(strikerX);
+        dragLine.setStartY(strikerY);
+        dragLine.setEndX(strikerX - dirX * pull);
+        dragLine.setEndY(strikerY - dirY * pull);
+        dragLine.setVisible(true);
+
+        powerFill.setWidth(220 * power);
     }
 
     private void onMouseDragged(MouseEvent e) {
@@ -742,9 +915,13 @@ public class CaromNetworkGame extends Application {
         if (dragMode == DragMode.MOVE) {
             placeStrikerAt(mouseX);
             hideAimVisuals();
+
+            sendMessage("PLACE|" + striker.x + "|" + striker.y);
         } else {
             computeAim(mouseX, mouseY);
             showAimVisuals();
+
+            sendMessage("AIM|" + striker.x + "|" + striker.y + "|" + aimDirX + "|" + aimDirY + "|" + aimPower);
         }
     }
 
@@ -767,7 +944,8 @@ public class CaromNetworkGame extends Application {
             return;
         }
 
-        sendMessage("SHOT|" + striker.x + "|" + aimDirX + "|" + aimDirY + "|" + speed);
+        sendMessage("CLEAR_AIM");
+        sendMessage("SHOT|" + striker.x + "|" + striker.y + "|" + aimDirX + "|" + aimDirY + "|" + speed);
 
         striker.vx = aimDirX * speed;
         striker.vy = aimDirY * speed;
@@ -1121,6 +1299,71 @@ public class CaromNetworkGame extends Application {
             hintLabel.setText(current().name + " to shoot from the "
                     + (player1Turn ? "bottom" : "top") + " baseline");
         }
+
+        if (connected && !applyingRemoteShot) {
+            sendMessage(createStateMessage());
+        }
+    }
+
+    private String createStateMessage() {
+        StringBuilder message = new StringBuilder("STATE");
+        message.append("|").append(player1Turn);
+        message.append("|").append(p1.pocketed);
+        message.append("|").append(p2.pocketed);
+        message.append("|").append(queenOnBoard);
+        message.append("|").append(playerIndex(queenOwner));
+        message.append("|").append(playerIndex(queenPendingCoverBy));
+        message.append("|").append(phase);
+
+        int nonStrikerCount = 0;
+        for (CaromPiece piece : pieces) {
+            if (piece.kind != Kind.STRIKER) {
+                nonStrikerCount++;
+            }
+        }
+
+        message.append("|").append(nonStrikerCount);
+
+        for (CaromPiece piece : pieces) {
+            if (piece.kind == Kind.STRIKER) {
+                continue;
+            }
+
+            message.append("|")
+                    .append(piece.kind)
+                    .append(",")
+                    .append(piece.x)
+                    .append(",")
+                    .append(piece.y)
+                    .append(",")
+                    .append(piece.vx)
+                    .append(",")
+                    .append(piece.vy);
+        }
+
+        message.append("|STRIKER")
+                .append(",")
+                .append(striker.x)
+                .append(",")
+                .append(striker.y)
+                .append(",")
+                .append(striker.vx)
+                .append(",")
+                .append(striker.vy);
+
+        return message.toString();
+    }
+
+    private int playerIndex(Player player) {
+        if (player == p1) {
+            return 1;
+        }
+
+        if (player == p2) {
+            return 2;
+        }
+
+        return 0;
     }
 
     /**
