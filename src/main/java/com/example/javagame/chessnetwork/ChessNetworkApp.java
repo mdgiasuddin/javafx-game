@@ -207,7 +207,9 @@ public class ChessNetworkApp extends Application {
         }
 
         if (!clickedPiece.isEmpty() && isPieceOfColor(clickedPiece, playerIsWhite)) {
-            resetBoardColors();
+            if (selectedRow != -1) {
+                bgTiles[selectedRow][selectedCol].setFill(getTileColor(selectedRow, selectedCol));
+            }
             selectedRow = row;
             selectedCol = col;
             bgTiles[row][col].setFill(Color.valueOf(SELECTED_TILE));
@@ -277,7 +279,10 @@ public class ChessNetworkApp extends Application {
 
         updateMovementFlags(movingPiece, sRow, sCol);
 
-        resetBoardColors();
+        if (selectedRow != -1) {
+            bgTiles[selectedRow][selectedCol].setFill(getTileColor(selectedRow, selectedCol));
+        }
+
         selectedRow = -1;
         selectedCol = -1;
         whiteTurn = !whiteTurn;
@@ -711,17 +716,9 @@ public class ChessNetworkApp extends Application {
     }
 
     private void clearSelection() {
-        resetBoardColors();
+        bgTiles[selectedRow][selectedCol].setFill(getTileColor(selectedRow, selectedCol));
         selectedRow = -1;
         selectedCol = -1;
-    }
-
-    private void resetBoardColors() {
-        for (int r = 0; r < BOARD_SIZE; r++) {
-            for (int c = 0; c < BOARD_SIZE; c++) {
-                bgTiles[r][c].setFill(getTileColor(r, c));
-            }
-        }
     }
 
     private Color getTileColor(int row, int col) {
