@@ -53,14 +53,29 @@ public class CaromGame extends Application {
     private static final int COINS_PER_PLAYER = 9;
     private static final int QUEEN_BONUS = 5;
     private static final double MAX_DRAG = 150;
-    private static final double MAX_SPEED = 27;
-    private static final double MIN_SPEED = 2.2;
-    private static final double FRICTION = 0.970;
+
+    /**
+     * Speeds are in pixels per frame at 60fps. A full-power strike leaves at about 420px/s and
+     * needs well over a second just to cross the board, so shots read as a deliberate glide
+     * rather than a flick.
+     */
+    private static final double MAX_SPEED = 7.0;
+    private static final double MIN_SPEED = 0.6;
+
+    /**
+     * Coins slide, they do not roll, so the board takes a fixed bite out of the speed every
+     * frame rather than a fixed percentage. Constant deceleration is what a sliding piece
+     * actually does: it holds its pace through most of the glide and then settles decisively,
+     * instead of creeping towards zero forever the way a multiplicative decay does. Kept low
+     * so a hard shot stays alive for several seconds.
+     */
+    private static final double DECELERATION = 0.024;
+
     private static final double CUSHION_BOUNCE = 0.74;
     private static final double COIN_BOUNCE = 0.94;
     private static final double STRIKER_MASS = 2.2;
     private static final double COIN_MASS = 1.0;
-    private static final double REST_SPEED = 0.12;
+    private static final double REST_SPEED = 0.02;
 
     // ---- Palette ----------------------------------------------------------------------
     private static final Color LIGHT_COIN = Color.web("#f6e7c4");
@@ -82,6 +97,7 @@ public class CaromGame extends Application {
 
     private Phase phase = Phase.READY;
     private DragMode dragMode = DragMode.NONE;
+    private long lastFrameNanos;
     private double pressX, pressY;
     private double aimDirX, aimDirY, aimPower;
 
@@ -134,10 +150,18 @@ public class CaromGame extends Application {
         new AnimationTimer() {
             @Override
             public void handle(long now) {
-                if (phase == Phase.SHOOTING) {
-                    stepPhysics();
-                    if (!anythingMoving()) resolveShot();
+                if (phase != Phase.SHOOTING || lastFrameNanos == 0) {
+                    lastFrameNanos = now;
+                    return;
                 }
+                double elapsedSeconds = (now - lastFrameNanos) / 1_000_000_000.0;
+                lastFrameNanos = now;
+
+                // The tuning constants are all "per frame at 60fps", so convert real elapsed
+                // time into that unit. Shots then run at the same pace on a 144Hz panel as on
+                // a 60Hz one. Capped so a hitch cannot teleport pieces across the board.
+                stepPhysics(Math.min(elapsedSeconds * 60.0, 3.0));
+                if (!anythingMoving()) resolveShot();
             }
         }.start();
 
@@ -628,13 +652,17 @@ public class CaromGame extends Application {
         return false;
     }
 
-    private void stepPhysics() {
+    /**
+     * Advances the board by {@code frames} 60fps-equivalent steps (1.0 on a 60Hz display,
+     * 0.5 on a 120Hz one).
+     */
+    private void stepPhysics(double frames) {
         double fastest = 0;
         for (CarromPiece p : pieces) fastest = Math.max(fastest, Math.hypot(p.vx, p.vy));
 
         // Sub-step so fast pieces cannot tunnel through coins or cushions.
-        int steps = Math.max(1, (int) Math.ceil(fastest / 3.0));
-        double dt = 1.0 / steps;
+        int steps = Math.max(1, (int) Math.ceil(fastest * frames / 2.0));
+        double dt = frames / steps;
 
         for (int s = 0; s < steps; s++) {
             for (CarromPiece p : pieces) {
@@ -645,12 +673,17 @@ public class CaromGame extends Application {
             resolveCollisions();
         }
 
+        double slowdown = DECELERATION * frames;
         for (CarromPiece p : pieces) {
-            p.vx *= FRICTION;
-            p.vy *= FRICTION;
-            if (Math.hypot(p.vx, p.vy) < REST_SPEED) {
+            // Sliding friction: shave a fixed amount off the speed, keeping the direction.
+            double speed = Math.hypot(p.vx, p.vy);
+            if (speed <= slowdown) {
                 p.vx = 0;
                 p.vy = 0;
+            } else {
+                double slowed = (speed - slowdown) / speed;
+                p.vx *= slowed;
+                p.vy *= slowed;
             }
             p.updateNodePosition();
         }
