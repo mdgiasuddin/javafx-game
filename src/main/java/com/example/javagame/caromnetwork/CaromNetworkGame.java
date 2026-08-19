@@ -32,10 +32,8 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 
-// ... existing code ...
-
 /**
- * Hot-seat two player Carrom.
+ * Hot-seat two player Carom.
  * <p>
  * Player 1 sits at the bottom of the board and owns the light coins, Player 2 sits at the
  * top and owns the dark coins. A turn is: slide the striker along your own baseline, then
@@ -388,6 +386,11 @@ public class CaromNetworkGame extends Application {
             phase = Phase.valueOf(parts[index++]);
 
             int pieceCount = Integer.parseInt(parts[index++]);
+            int expectedLength = 9 + pieceCount + 1;
+            if (parts.length != expectedLength) {
+                showNetworkError("Received invalid board state.");
+                return;
+            }
 
             pieces.clear();
             pieceLayer.getChildren().clear();
@@ -444,7 +447,7 @@ public class CaromNetworkGame extends Application {
     }
 
     private void applyRemoteShot(double strikerX, double strikerY, double dirX, double dirY, double speed) {
-        if (phase != Phase.READY || gameEnded()) {
+        if (phase != Phase.READY) {
             return;
         }
 
@@ -468,8 +471,6 @@ public class CaromNetworkGame extends Application {
         dragMode = DragMode.NONE;
         hideAimVisuals();
         hintLabel.setText("");
-
-        applyingRemoteShot = false;
     }
 
     private boolean gameEnded() {
@@ -854,7 +855,7 @@ public class CaromNetworkGame extends Application {
     }
 
     private void applyRemoteStrikerPlacement(double strikerX, double strikerY) {
-        if (phase != Phase.READY || gameEnded()) {
+        if (phase != Phase.READY) {
             return;
         }
 
@@ -974,7 +975,7 @@ public class CaromNetworkGame extends Application {
      * Closest x on the baseline where the striker fits without touching a coin.
      */
     private double nearestLegalStrikerX(double desired, double y) {
-        double target = Math.max(strikerMinX(), Math.min(strikerMaxX(), desired));
+        double target = Math.clamp(desired, strikerMinX(), strikerMaxX());
         if (!overlapsAnyCoin(target, y, STRIKER_RADIUS)) return target;
 
         double span = strikerMaxX() - strikerMinX();
@@ -1303,6 +1304,8 @@ public class CaromNetworkGame extends Application {
         if (connected && !applyingRemoteShot) {
             sendMessage(createStateMessage());
         }
+
+        applyingRemoteShot = false;
     }
 
     private String createStateMessage() {
