@@ -92,8 +92,8 @@ public class CaromGame extends Application {
 
     private Pane root;
     private Group pieceLayer;
-    private final List<CarromPiece> pieces = new ArrayList<>();
-    private CarromPiece striker;
+    private final List<CaromPiece> pieces = new ArrayList<>();
+    private CaromPiece striker;
 
     private Phase phase = Phase.READY;
     private DragMode dragMode = DragMode.NONE;
@@ -447,7 +447,7 @@ public class CaromGame extends Application {
 
         layoutCoins();
 
-        striker = new CarromPiece(centerX(), baselineY(true), STRIKER_RADIUS, Kind.STRIKER);
+        striker = new CaromPiece(centerX(), baselineY(true), STRIKER_RADIUS, Kind.STRIKER);
         addPiece(striker);
 
         updateHud();
@@ -459,7 +459,7 @@ public class CaromGame extends Application {
      * Classic flower layout: queen in the middle, a ring of 6, then a ring of 12.
      */
     private void layoutCoins() {
-        addPiece(new CarromPiece(centerX(), centerY(), COIN_RADIUS, Kind.QUEEN));
+        addPiece(new CaromPiece(centerX(), centerY(), COIN_RADIUS, Kind.QUEEN));
 
         addRing(6, 2 * COIN_RADIUS, 0);
         addRing(12, 4 * COIN_RADIUS, Math.PI / 12);
@@ -470,11 +470,11 @@ public class CaromGame extends Application {
             double angle = angleOffset + 2 * Math.PI * i / count;
             double x = centerX() + radius * Math.cos(angle);
             double y = centerY() + radius * Math.sin(angle);
-            addPiece(new CarromPiece(x, y, COIN_RADIUS, i % 2 == 0 ? Kind.LIGHT : Kind.DARK));
+            addPiece(new CaromPiece(x, y, COIN_RADIUS, i % 2 == 0 ? Kind.LIGHT : Kind.DARK));
         }
     }
 
-    private void addPiece(CarromPiece piece) {
+    private void addPiece(CaromPiece piece) {
         pieces.add(piece);
         pieceLayer.getChildren().add(piece.node);
     }
@@ -646,7 +646,7 @@ public class CaromGame extends Application {
     // =====================================================================================
 
     private boolean anythingMoving() {
-        for (CarromPiece p : pieces) {
+        for (CaromPiece p : pieces) {
             if (Math.hypot(p.vx, p.vy) > REST_SPEED) return true;
         }
         return false;
@@ -658,14 +658,14 @@ public class CaromGame extends Application {
      */
     private void stepPhysics(double frames) {
         double fastest = 0;
-        for (CarromPiece p : pieces) fastest = Math.max(fastest, Math.hypot(p.vx, p.vy));
+        for (CaromPiece p : pieces) fastest = Math.max(fastest, Math.hypot(p.vx, p.vy));
 
         // Sub-step so fast pieces cannot tunnel through coins or cushions.
         int steps = Math.max(1, (int) Math.ceil(fastest * frames / 2.0));
         double dt = frames / steps;
 
         for (int s = 0; s < steps; s++) {
-            for (CarromPiece p : pieces) {
+            for (CaromPiece p : pieces) {
                 p.x += p.vx * dt;
                 p.y += p.vy * dt;
                 bounceOffCushions(p);
@@ -674,7 +674,7 @@ public class CaromGame extends Application {
         }
 
         double slowdown = DECELERATION * frames;
-        for (CarromPiece p : pieces) {
+        for (CaromPiece p : pieces) {
             // Sliding friction: shave a fixed amount off the speed, keeping the direction.
             double speed = Math.hypot(p.vx, p.vy);
             if (speed <= slowdown) {
@@ -696,7 +696,7 @@ public class CaromGame extends Application {
      * a pocket is already inside the capture radius, so it drops instead of rattling out -
      * and nothing can drift off the playing surface.
      */
-    private void bounceOffCushions(CarromPiece p) {
+    private void bounceOffCushions(CaromPiece p) {
         double minX = boardLeft() + p.radius;
         double maxX = boardRight() - p.radius;
         double minY = boardTop() + p.radius;
@@ -726,7 +726,7 @@ public class CaromGame extends Application {
         }
     }
 
-    private void collide(CarromPiece a, CarromPiece b) {
+    private void collide(CaromPiece a, CaromPiece b) {
         double dx = b.x - a.x;
         double dy = b.y - a.y;
         double dist = Math.hypot(dx, dy);
@@ -767,7 +767,7 @@ public class CaromGame extends Application {
 
     private void collectPocketedPieces() {
         for (int i = pieces.size() - 1; i >= 0; i--) {
-            CarromPiece p = pieces.get(i);
+            CaromPiece p = pieces.get(i);
             if (!isPocketed(p)) continue;
 
             pieces.remove(i);
@@ -782,7 +782,7 @@ public class CaromGame extends Application {
         }
     }
 
-    private boolean isPocketed(CarromPiece p) {
+    private boolean isPocketed(CaromPiece p) {
         for (double[] c : pocketCenters()) {
             if (Math.hypot(p.x - c[0], p.y - c[1]) < POCKET_RADIUS - 2) return true;
         }
@@ -905,7 +905,7 @@ public class CaromGame extends Application {
     private boolean spawnPiece(Kind kind) {
         double[] spot = findFreeSpot(COIN_RADIUS);
         if (spot == null) return false;
-        addPiece(new CarromPiece(spot[0], spot[1], COIN_RADIUS, kind));
+        addPiece(new CaromPiece(spot[0], spot[1], COIN_RADIUS, kind));
         return true;
     }
 
@@ -931,14 +931,14 @@ public class CaromGame extends Application {
         for (double[] c : pocketCenters()) {
             if (Math.hypot(x - c[0], y - c[1]) < POCKET_RADIUS + radius + 8) return false;
         }
-        for (CarromPiece p : pieces) {
+        for (CaromPiece p : pieces) {
             if (Math.hypot(x - p.x, y - p.y) < radius + p.radius + 1.5) return false;
         }
         return true;
     }
 
     private boolean overlapsAnyCoin(double x, double y, double radius) {
-        for (CarromPiece p : pieces) {
+        for (CaromPiece p : pieces) {
             if (p == striker) continue;
             if (Math.hypot(x - p.x, y - p.y) < radius + p.radius + 0.5) return true;
         }
@@ -948,7 +948,7 @@ public class CaromGame extends Application {
     private void placeStrikerForTurn() {
         double y = baselineY(player1Turn);
         if (!pieces.contains(striker)) {
-            striker = new CarromPiece(centerX(), y, STRIKER_RADIUS, Kind.STRIKER);
+            striker = new CaromPiece(centerX(), y, STRIKER_RADIUS, Kind.STRIKER);
             addPiece(striker);
         }
         striker.vx = 0;
@@ -1056,14 +1056,14 @@ public class CaromGame extends Application {
         }
     }
 
-    private static class CarromPiece {
+    private static class CaromPiece {
         final Kind kind;
         final double radius;
         final double mass;
         final Circle node;
         double x, y, vx, vy;
 
-        CarromPiece(double x, double y, double radius, Kind kind) {
+        CaromPiece(double x, double y, double radius, Kind kind) {
             this.x = x;
             this.y = y;
             this.radius = radius;
