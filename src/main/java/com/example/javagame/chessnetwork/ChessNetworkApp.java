@@ -59,7 +59,7 @@ public class ChessNetworkApp extends Application {
     private int selectedRow = -1;
     private int selectedCol = -1;
     private boolean whiteTurn = true;
-    private boolean gameOver = false;
+    public boolean gameOver = false;
 
     private boolean whiteKingMoved = false;
     private boolean whiteRookA1Moved = false;
@@ -75,7 +75,7 @@ public class ChessNetworkApp extends Application {
     private Socket socket;
     private PrintWriter out;
     private BufferedReader in;
-    private boolean isMyTurn = false;
+    public boolean isMyTurn = false;
     private boolean playerIsWhite = true;
 
     @Override
@@ -136,7 +136,7 @@ public class ChessNetworkApp extends Application {
 
                 Platform.runLater(() -> handleColorAssignment(colorAssignment));
 
-                Thread incomingThread = new Thread(new IncomingReader(), "Chess-Incoming-Reader");
+                Thread incomingThread = new Thread(new IncomingReader(this, in), "Chess-Incoming-Reader");
                 incomingThread.setDaemon(true);
                 incomingThread.start();
             } catch (Exception e) {
@@ -265,7 +265,7 @@ public class ChessNetworkApp extends Application {
         updateTurnIndicator();
     }
 
-    private void executeMoveLocally(int sRow, int sCol, int tRow, int tCol) {
+    public void executeMoveLocally(int sRow, int sCol, int tRow, int tCol) {
         String movingPiece = boardUI[sRow][sCol].getText();
 
         if (isCastlingMove(movingPiece, sRow, sCol, tRow, tCol)) {
@@ -408,7 +408,7 @@ public class ChessNetworkApp extends Application {
         return inCheck;
     }
 
-    private void updateTurnIndicator() {
+    public void updateTurnIndicator() {
         Platform.runLater(() -> {
             if (gameOver) {
                 statusContainer.setStyle(ERROR_STYLE);
@@ -427,45 +427,7 @@ public class ChessNetworkApp extends Application {
         });
     }
 
-    private class IncomingReader implements Runnable {
-        @Override
-        public void run() {
-            try {
-                String line;
-                while ((line = in.readLine()) != null) {
-                    if ("DISCONNECT".equals(line)) {
-                        Platform.runLater(() -> showError("Opponent disconnected."));
-                        break;
-                    }
-
-                    if (!isValidMoveMessage(line)) {
-                        Platform.runLater(() -> showError("Received invalid move from server."));
-                        break;
-                    }
-
-                    String[] parts = line.split(",");
-                    int sRow = Integer.parseInt(parts[0]);
-                    int sCol = Integer.parseInt(parts[1]);
-                    int tRow = Integer.parseInt(parts[2]);
-                    int tCol = Integer.parseInt(parts[3]);
-
-                    Platform.runLater(() -> {
-                        if (!gameOver) {
-                            executeMoveLocally(sRow, sCol, tRow, tCol);
-                            isMyTurn = true;
-                            updateTurnIndicator();
-                        }
-                    });
-                }
-            } catch (IOException e) {
-                Platform.runLater(() -> showError("Connection lost with opponent."));
-            } finally {
-                closeConnection();
-            }
-        }
-    }
-
-    private boolean isValidMoveMessage(String line) {
+    public boolean isValidMoveMessage(String line) {
         String[] parts = line.split(",");
         if (parts.length != 4) {
             return false;
@@ -731,12 +693,12 @@ public class ChessNetworkApp extends Application {
         statusLabel.setText(message);
     }
 
-    private void showError(String message) {
+    public void showError(String message) {
         gameOver = true;
         setStatus(message, ERROR_STYLE);
     }
 
-    private void closeConnection() {
+    public void closeConnection() {
         try {
             if (socket != null && !socket.isClosed()) {
                 socket.close();
