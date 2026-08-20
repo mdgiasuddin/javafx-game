@@ -50,7 +50,21 @@ public class CaromNetworkGame extends Application {
     private boolean connected = false;
     private boolean playerIsWhite = true;
     private boolean isMyTurn = false;
-    private boolean applyingRemoteShot = false;
+    /**
+     * True while the shot in flight was fired by this client. The shooter's client is the only
+     * one allowed to decide how a shot ended and to broadcast the resulting board, so this is
+     * set the moment a shot starts rather than cleared once one finishes - a flag that is only
+     * cleared on resolution goes stale whenever a state message cuts a simulation short, and a
+     * stale flag silently suppresses the next broadcast.
+     */
+    private boolean shotOwnedByMe = false;
+    /**
+     * True once a shot fired by the opponent has come to rest locally, until their authoritative
+     * state message lands. Both clients simulate every shot, but frame timing differs, so the two
+     * simulations can disagree about the outcome; the non-shooter waits instead of acting on its
+     * own copy.
+     */
+    private boolean awaitingRemoteState = false;
 
     // ---- Layout -----------------------------------------------------------------------
     private static final double WIDTH = 660;
@@ -367,6 +381,11 @@ public class CaromNetworkGame extends Application {
     }
 
     private void applyStateMessage(String line) {
+        if (phase == Phase.SHOOTING && shotOwnedByMe) {
+            // Our own shot is still travelling, so this state predates it and would rewind us.
+            return;
+        }
+
         String[] parts = line.split("\\|");
 
         if (parts.length < 10) {
@@ -406,11 +425,25 @@ public class CaromNetworkGame extends Application {
             dragMode = DragMode.NONE;
             hideAimVisuals();
 
+            // The shot this state describes is over, so no local shot bookkeeping survives it.
+            pocketedThisShot.clear();
+            strikerPocketedThisShot = false;
+            strikerTouchedCoin = false;
+            shotOwnedByMe = false;
+            awaitingRemoteState = false;
+
             strikerZone.setY(baselineY(player1Turn) - STRIKER_RADIUS);
             strikerZone.setVisible(phase != Phase.GAME_OVER);
 
             updateHud();
             updateTurnText();
+
+            if (phase == Phase.GAME_OVER) {
+                Player winner = findWinner();
+                if (winner != null) endGame(winner);
+            } else {
+                overlay.setVisible(false);
+            }
         } catch (RuntimeException e) {
             showNetworkError("Received corrupted board state.");
         }
@@ -447,11 +480,13 @@ public class CaromNetworkGame extends Application {
     }
 
     private void applyRemoteShot(double strikerX, double strikerY, double dirX, double dirY, double speed) {
+        // Recorded before the guard: even a shot we cannot apply is one we do not own, and we
+        // must never broadcast a board for a shot the opponent fired.
+        shotOwnedByMe = false;
+
         if (phase != Phase.READY) {
             return;
         }
-
-        applyingRemoteShot = true;
 
         if (!pieces.contains(striker)) {
             striker = new CaromPiece(strikerX, strikerY, STRIKER_RADIUS, Kind.STRIKER);
@@ -483,11 +518,14 @@ public class CaromNetworkGame extends Application {
         }
 
         boolean myColorTurn = player1Turn == playerIsWhite;
-        isMyTurn = connected && myColorTurn;
+        isMyTurn = connected && myColorTurn && !awaitingRemoteState;
 
         if (isMyTurn) {
             statusLabel.setText("YOUR TURN - " + (playerIsWhite ? "light coins" : "dark coins"));
             hintLabel.setText("Place the striker, pull back, and release to shoot");
+        } else if (awaitingRemoteState) {
+            statusLabel.setText("SYNCING SHOT RESULT");
+            hintLabel.setText("Waiting for the opponent's board update");
         } else {
             statusLabel.setText("OPPONENT'S TURN");
             hintLabel.setText("Wait for your opponent to shoot");
@@ -773,6 +811,11 @@ public class CaromNetworkGame extends Application {
         player1Turn = true;
         phase = Phase.READY;
         dragMode = DragMode.NONE;
+        pocketedThisShot.clear();
+        strikerPocketedThisShot = false;
+        strikerTouchedCoin = false;
+        shotOwnedByMe = false;
+        awaitingRemoteState = false;
         overlay.setVisible(false);
         hideAimVisuals();
 
@@ -782,8 +825,14 @@ public class CaromNetworkGame extends Application {
         addPiece(striker);
 
         updateHud();
-        statusLabel.setText(p1.name + " to break");
-        hintLabel.setText("Drag the striker sideways to place it, then pull back and release to shoot");
+
+        if (connected) {
+            // A reset leaves the break with Player 1, so both clients must recompute who that is.
+            updateTurnText();
+        } else {
+            statusLabel.setText(p1.name + " to break");
+            hintLabel.setText("Drag the striker sideways to place it, then pull back and release to shoot");
+        }
     }
 
     /**
@@ -956,6 +1005,8 @@ public class CaromNetworkGame extends Application {
         strikerTouchedCoin = false;
         phase = Phase.SHOOTING;
         isMyTurn = false;
+        shotOwnedByMe = true;
+        awaitingRemoteState = false;
         hintLabel.setText("");
     }
 
@@ -1283,10 +1334,16 @@ public class CaromNetworkGame extends Application {
         Player winner = findWinner();
         if (winner != null) {
             endGame(winner);
+            broadcastState();
             return;
         }
 
-        if (!shootAgain) player1Turn = !player1Turn;
+        if (!shotOwnedByMe) {
+            // Somebody else's shot: the turn is theirs to hand over, not ours to take.
+            awaitingRemoteState = true;
+        } else if (!shootAgain) {
+            player1Turn = !player1Turn;
+        }
 
         phase = Phase.READY;
         placeStrikerForTurn();
@@ -1301,11 +1358,17 @@ public class CaromNetworkGame extends Application {
                     + (player1Turn ? "bottom" : "top") + " baseline");
         }
 
-        if (connected && !applyingRemoteShot) {
+        broadcastState();
+    }
+
+    /**
+     * The shooter's client owns the outcome of its own shot and publishes it. Both clients
+     * simulate the shot for smooth visuals, but only this message decides what actually happened.
+     */
+    private void broadcastState() {
+        if (connected && shotOwnedByMe) {
             sendMessage(createStateMessage());
         }
-
-        applyingRemoteShot = false;
     }
 
     private String createStateMessage() {
