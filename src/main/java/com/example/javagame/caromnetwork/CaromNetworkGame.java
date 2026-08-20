@@ -14,7 +14,6 @@ import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.CycleMethod;
 import javafx.scene.paint.LinearGradient;
-import javafx.scene.paint.RadialGradient;
 import javafx.scene.paint.Stop;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Line;
@@ -31,6 +30,11 @@ import java.io.PrintWriter;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+
+import static com.example.javagame.caromnetwork.DragMode.NONE;
+import static com.example.javagame.caromnetwork.Kind.DARK;
+import static com.example.javagame.caromnetwork.Kind.LIGHT;
+import static com.example.javagame.caromnetwork.Phase.READY;
 
 /**
  * Hot-seat two player Carom.
@@ -97,29 +101,23 @@ public class CaromNetworkGame extends Application {
      * Coins slide, they do not roll, so the board takes a fixed bite out of the speed every
      * frame rather than a fixed percentage. Constant deceleration is what a sliding piece
      * actually does: it holds its pace through most of the glide and then settles decisively,
-     * instead of creeping towards zero forever the way a multiplicative decay does. Kept low
+     * instead of creeping towards zero forever the way multiplicative decay does. Kept low
      * so a hard shot stays alive for several seconds.
      */
     private static final double DECELERATION = 0.031;
 
     private static final double CUSHION_BOUNCE = 0.74;
     private static final double COIN_BOUNCE = 0.94;
-    private static final double STRIKER_MASS = 2.2;
-    private static final double COIN_MASS = 1.0;
+    public static final double STRIKER_MASS = 2.2;
+    public static final double COIN_MASS = 1.0;
     private static final double REST_SPEED = 0.02;
 
     // ---- Palette ----------------------------------------------------------------------
-    private static final Color LIGHT_COIN = Color.web("#f6e7c4");
-    private static final Color DARK_COIN = Color.web("#2b2118");
-    private static final Color QUEEN_COIN = Color.web("#c1121f");
+    public static final Color LIGHT_COIN = Color.web("#f6e7c4");
+    public static final Color DARK_COIN = Color.web("#2b2118");
+    public static final Color QUEEN_COIN = Color.web("#c1121f");
     private static final Color ACTIVE_GLOW = Color.web("#e94560");
     private static final Color IDLE_STROKE = Color.web("#0f3460");
-
-    private enum Kind {STRIKER, LIGHT, DARK, QUEEN}
-
-    private enum Phase {READY, SHOOTING, GAME_OVER}
-
-    private enum DragMode {NONE, UNDECIDED, MOVE, AIM}
 
     private Pane root;
     private Group boardGroup;
@@ -128,15 +126,15 @@ public class CaromNetworkGame extends Application {
     private final List<CaromPiece> pieces = new ArrayList<>();
     private CaromPiece striker;
 
-    private Phase phase = Phase.READY;
-    private DragMode dragMode = DragMode.NONE;
+    private Phase phase = READY;
+    private DragMode dragMode = NONE;
     private long lastFrameNanos;
     private double pressX, pressY;
     private double aimDirX, aimDirY, aimPower;
 
     // ---- Players ----------------------------------------------------------------------
-    private final Player p1 = new Player("Player 1", Kind.LIGHT, LIGHT_COIN);
-    private final Player p2 = new Player("Player 2", Kind.DARK, DARK_COIN);
+    private final Player p1 = new Player("Player 1", LIGHT, LIGHT_COIN);
+    private final Player p2 = new Player("Player 2", DARK, DARK_COIN);
     private boolean player1Turn = true;
 
     // ---- Queen bookkeeping ------------------------------------------------------------
@@ -274,7 +272,7 @@ public class CaromNetworkGame extends Application {
 
     private void showNetworkError(String message) {
         phase = Phase.GAME_OVER;
-        dragMode = DragMode.NONE;
+        dragMode = NONE;
         hideAimVisuals();
         statusLabel.setText(message);
         hintLabel.setText("");
@@ -422,7 +420,7 @@ public class CaromNetworkGame extends Application {
             striker = parsePiece(parts[index]);
             addPiece(striker);
 
-            dragMode = DragMode.NONE;
+            dragMode = NONE;
             hideAimVisuals();
 
             // The shot this state describes is over, so no local shot bookkeeping survives it.
@@ -484,7 +482,7 @@ public class CaromNetworkGame extends Application {
         // must never broadcast a board for a shot the opponent fired.
         shotOwnedByMe = false;
 
-        if (phase != Phase.READY) {
+        if (phase != READY) {
             return;
         }
 
@@ -503,7 +501,7 @@ public class CaromNetworkGame extends Application {
         strikerPocketedThisShot = false;
         strikerTouchedCoin = false;
         phase = Phase.SHOOTING;
-        dragMode = DragMode.NONE;
+        dragMode = NONE;
         hideAimVisuals();
         hintLabel.setText("");
     }
@@ -809,8 +807,8 @@ public class CaromNetworkGame extends Application {
         queenOwner = null;
         queenPendingCoverBy = null;
         player1Turn = true;
-        phase = Phase.READY;
-        dragMode = DragMode.NONE;
+        phase = READY;
+        dragMode = NONE;
         pocketedThisShot.clear();
         strikerPocketedThisShot = false;
         strikerTouchedCoin = false;
@@ -850,7 +848,7 @@ public class CaromNetworkGame extends Application {
             double angle = angleOffset + 2 * Math.PI * i / count;
             double x = centerX() + radius * Math.cos(angle);
             double y = centerY() + radius * Math.sin(angle);
-            addPiece(new CaromPiece(x, y, COIN_RADIUS, i % 2 == 0 ? Kind.LIGHT : Kind.DARK));
+            addPiece(new CaromPiece(x, y, COIN_RADIUS, i % 2 == 0 ? LIGHT : DARK));
         }
     }
 
@@ -868,18 +866,18 @@ public class CaromNetworkGame extends Application {
 
         if (!connected) {
             statusLabel.setText("Connecting to server...");
-            dragMode = DragMode.NONE;
+            dragMode = NONE;
             return;
         }
 
         if (!isMyTurn) {
             statusLabel.setText("Wait for your opponent's turn");
-            dragMode = DragMode.NONE;
+            dragMode = NONE;
             return;
         }
 
-        if (phase != Phase.READY) {
-            dragMode = DragMode.NONE;
+        if (phase != READY) {
+            dragMode = NONE;
             return;
         }
 
@@ -900,11 +898,11 @@ public class CaromNetworkGame extends Application {
             sendMessage("PLACE|" + striker.x + "|" + striker.y);
         }
 
-        dragMode = (onStriker || inBand) ? DragMode.UNDECIDED : DragMode.NONE;
+        dragMode = (onStriker || inBand) ? DragMode.UNDECIDED : NONE;
     }
 
     private void applyRemoteStrikerPlacement(double strikerX, double strikerY) {
-        if (phase != Phase.READY) {
+        if (phase != READY) {
             return;
         }
 
@@ -944,7 +942,7 @@ public class CaromNetworkGame extends Application {
     }
 
     private void onMouseDragged(MouseEvent e) {
-        if (!connected || !isMyTurn || phase != Phase.READY || dragMode == DragMode.NONE) {
+        if (!connected || !isMyTurn || phase != READY || dragMode == NONE) {
             return;
         }
 
@@ -977,10 +975,10 @@ public class CaromNetworkGame extends Application {
 
     private void onMouseReleased(MouseEvent e) {
         DragMode mode = dragMode;
-        dragMode = DragMode.NONE;
+        dragMode = NONE;
         hideAimVisuals();
 
-        if (!connected || !isMyTurn || mode != DragMode.AIM || phase != Phase.READY) {
+        if (!connected || !isMyTurn || mode != DragMode.AIM || phase != READY) {
             return;
         }
 
@@ -1345,7 +1343,7 @@ public class CaromNetworkGame extends Application {
             player1Turn = !player1Turn;
         }
 
-        phase = Phase.READY;
+        phase = READY;
         placeStrikerForTurn();
         statusLabel.setText(message);
 
@@ -1528,7 +1526,7 @@ public class CaromNetworkGame extends Application {
 
     private void endGame(Player winner) {
         phase = Phase.GAME_OVER;
-        dragMode = DragMode.NONE;
+        dragMode = NONE;
         hideAimVisuals();
         updateHud();
 
@@ -1605,7 +1603,7 @@ public class CaromNetworkGame extends Application {
         }
     }
 
-    private static class CaromPiece {
+    /*private static class CaromPiece {
         final Kind kind;
         final double radius;
         final double mass;
@@ -1640,7 +1638,7 @@ public class CaromNetworkGame extends Application {
             node.setCenterX(x);
             node.setCenterY(y);
         }
-    }
+    }*/
 
     public static void main(String[] args) {
         launch(args);
