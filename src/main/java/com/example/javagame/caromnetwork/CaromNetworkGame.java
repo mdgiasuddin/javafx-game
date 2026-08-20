@@ -86,7 +86,7 @@ public class CaromNetworkGame extends Application {
 
     // ---- Rules / feel -----------------------------------------------------------------
     private static final int COINS_PER_PLAYER = 9;
-    private static final int QUEEN_BONUS = 5;
+    public static final int QUEEN_BONUS = 5;
     private static final double MAX_DRAG = 150;
 
     /**
@@ -288,6 +288,12 @@ public class CaromNetworkGame extends Application {
         }
     }
 
+    private void setQueenOwner(Player player) {
+        queenOwner = player;
+        p1.setHasQueen(player == p1);
+        p2.setHasQueen(player == p2);
+    }
+
     private class IncomingReader implements Runnable {
         @Override
         public void run() {
@@ -398,7 +404,7 @@ public class CaromNetworkGame extends Application {
             p1.pocketed = Integer.parseInt(parts[index++]);
             p2.pocketed = Integer.parseInt(parts[index++]);
             queenOnBoard = Boolean.parseBoolean(parts[index++]);
-            queenOwner = playerFromIndex(Integer.parseInt(parts[index++]));
+            setQueenOwner(playerFromIndex(Integer.parseInt(parts[index++])));
             queenPendingCoverBy = playerFromIndex(Integer.parseInt(parts[index++]));
             phase = Phase.valueOf(parts[index++]);
 
@@ -804,7 +810,7 @@ public class CaromNetworkGame extends Application {
         p1.reset();
         p2.reset();
         queenOnBoard = true;
-        queenOwner = null;
+        setQueenOwner(null);
         queenPendingCoverBy = null;
         player1Turn = true;
         phase = READY;
@@ -1291,7 +1297,7 @@ public class CaromNetworkGame extends Application {
             message = shooter.name + " missed everything - foul";
         } else if (queenPocketed) {
             if (ownPocketed > 0) {
-                queenOwner = shooter;
+                setQueenOwner(shooter);
                 queenPendingCoverBy = null;
                 shootAgain = true;
                 message = shooter.name + " pocketed and covered the Queen (+" + QUEEN_BONUS + ")";
@@ -1307,7 +1313,7 @@ public class CaromNetworkGame extends Application {
             }
         } else if (queenPendingCoverBy == shooter) {
             if (ownPocketed > 0) {
-                queenOwner = shooter;
+                setQueenOwner(shooter);
                 queenPendingCoverBy = null;
                 shootAgain = true;
                 message = "Queen covered by " + shooter.name + " (+" + QUEEN_BONUS + ")";
@@ -1512,7 +1518,7 @@ public class CaromNetworkGame extends Application {
 
         // An unclaimed Queen goes to whoever finishes the board.
         if (queenOwner == null) {
-            queenOwner = finished;
+            setQueenOwner(finished);
             queenPendingCoverBy = null;
             queenOnBoard = false;
             for (int i = pieces.size() - 1; i >= 0; i--) {
@@ -1569,76 +1575,6 @@ public class CaromNetworkGame extends Application {
             queenLabel.setText("Queen on board");
         }
     }
-
-    // =====================================================================================
-    // Entities
-    // =====================================================================================
-
-    private class Player {
-        String name;
-        final Kind coin;
-        final Color color;
-        int pocketed;
-
-        Rectangle card;
-        Circle dot;
-        Label nameLabel, scoreLabel, coinsLabel;
-
-        Player(String name, Kind coin, Color color) {
-            this.name = name;
-            this.coin = coin;
-            this.color = color;
-        }
-
-        boolean hasQueen() {
-            return queenOwner == this;
-        }
-
-        int score() {
-            return pocketed + (hasQueen() ? QUEEN_BONUS : 0);
-        }
-
-        void reset() {
-            pocketed = 0;
-        }
-    }
-
-    /*private static class CaromPiece {
-        final Kind kind;
-        final double radius;
-        final double mass;
-        final Circle node;
-        double x, y, vx, vy;
-
-        CaromPiece(double x, double y, double radius, Kind kind) {
-            this.x = x;
-            this.y = y;
-            this.radius = radius;
-            this.kind = kind;
-            this.mass = kind == Kind.STRIKER ? STRIKER_MASS : COIN_MASS;
-
-            Color base = switch (kind) {
-                case STRIKER -> Color.web("#fdfdfd");
-                case LIGHT -> LIGHT_COIN;
-                case DARK -> DARK_COIN;
-                case QUEEN -> QUEEN_COIN;
-            };
-
-            node = new Circle(x, y, radius);
-            node.setFill(new RadialGradient(0, 0, 0.35, 0.3, 0.9, true, CycleMethod.NO_CYCLE,
-                    new Stop(0, base.interpolate(Color.WHITE, 0.45)),
-                    new Stop(0.7, base),
-                    new Stop(1, base.interpolate(Color.BLACK, 0.35))));
-            node.setStroke(base.interpolate(Color.BLACK, 0.55));
-            node.setStrokeWidth(kind == Kind.STRIKER ? 2 : 1.2);
-            node.setEffect(new DropShadow(5, 1, 2, Color.web("#00000066")));
-        }
-
-        void updateNodePosition() {
-            node.setCenterX(x);
-            node.setCenterY(y);
-        }
-    }*/
 
     public static void main(String[] args) {
         launch(args);
