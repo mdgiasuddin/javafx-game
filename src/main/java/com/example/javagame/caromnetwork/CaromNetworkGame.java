@@ -12,7 +12,6 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
-import javafx.scene.paint.CycleMethod;
 import javafx.scene.paint.LinearGradient;
 import javafx.scene.paint.Stop;
 import javafx.scene.shape.Circle;
@@ -31,10 +30,16 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.example.javagame.caromnetwork.DragMode.AIM;
+import static com.example.javagame.caromnetwork.DragMode.MOVE;
 import static com.example.javagame.caromnetwork.DragMode.NONE;
+import static com.example.javagame.caromnetwork.DragMode.UNDECIDED;
 import static com.example.javagame.caromnetwork.Kind.DARK;
 import static com.example.javagame.caromnetwork.Kind.LIGHT;
+import static com.example.javagame.caromnetwork.Phase.GAME_OVER;
 import static com.example.javagame.caromnetwork.Phase.READY;
+import static javafx.scene.paint.Color.TRANSPARENT;
+import static javafx.scene.paint.CycleMethod.NO_CYCLE;
 
 /**
  * Hot-seat two player Carom.
@@ -50,7 +55,6 @@ public class CaromNetworkGame extends Application {
 
     private Socket socket;
     private PrintWriter out;
-    private BufferedReader in;
     private boolean connected = false;
     private boolean playerIsWhite = true;
     private boolean isMyTurn = false;
@@ -104,7 +108,7 @@ public class CaromNetworkGame extends Application {
      * instead of creeping towards zero forever the way multiplicative decay does. Kept low
      * so a hard shot stays alive for several seconds.
      */
-    private static final double DECELERATION = 0.031;
+    private static final double DECELERATION = 0.025;
 
     private static final double CUSHION_BOUNCE = 0.74;
     private static final double COIN_BOUNCE = 0.94;
@@ -152,7 +156,7 @@ public class CaromNetworkGame extends Application {
     private Line aimLine;
     private Line dragLine;
     private Circle aimTip;
-    private Rectangle powerTrack, powerFill;
+    private Rectangle powerFill;
     private Label statusLabel, hintLabel, queenLabel;
     private Group overlay;
     private Label overlayTitle, overlaySubtitle;
@@ -179,7 +183,7 @@ public class CaromNetworkGame extends Application {
         root.setOnMouseDragged(this::onMouseDragged);
         root.setOnMouseReleased(this::onMouseReleased);
         scene.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.R && connected && playerIsWhite) {
+            if (e.getCode() == KeyCode.R && connected && gameEnded()) {
                 sendMessage("RESET");
                 newGame();
             }
@@ -215,6 +219,179 @@ public class CaromNetworkGame extends Application {
         setupNetworking(host, DEFAULT_PORT);
     }
 
+    // =====================================================================================
+    // Scene construction
+    // =====================================================================================
+
+    private void buildBackground() {
+        Rectangle bg = new Rectangle(WIDTH, HEIGHT);
+        bg.setFill(new LinearGradient(0, 0, 0, 1, true, NO_CYCLE,
+                new Stop(0, Color.web("#12122a")),
+                new Stop(1, Color.web("#1f1f3d"))));
+
+        root.getChildren().add(0, bg);
+    }
+
+    private void buildBoard() {
+        Rectangle frame = new Rectangle(boardLeft() - 16, boardTop() - 16, BOARD_SIZE + 32, BOARD_SIZE + 32);
+        frame.setFill(new LinearGradient(0, 0, 1, 1, true, NO_CYCLE,
+                new Stop(0, Color.web("#a9642a")),
+                new Stop(1, Color.web("#7a4318"))));
+        frame.setArcWidth(24);
+        frame.setArcHeight(24);
+        frame.setEffect(new DropShadow(24, Color.web("#000000cc")));
+        boardGroup.getChildren().add(frame);
+
+        Rectangle surface = new Rectangle(boardLeft(), boardTop(), BOARD_SIZE, BOARD_SIZE);
+        surface.setFill(new LinearGradient(0, 0, 1, 1, true, NO_CYCLE,
+                new Stop(0, Color.web("#fbe8b8")),
+                new Stop(0.5, Color.web("#f2d99f")),
+                new Stop(1, Color.web("#e0c087"))));
+        boardGroup.getChildren().add(surface);
+
+        // Playing-area border lines
+        for (double inset : new double[]{POCKET_INSET + 16, POCKET_INSET + 20}) {
+            Rectangle line = new Rectangle(boardLeft() + inset, boardTop() + inset,
+                    BOARD_SIZE - 2 * inset, BOARD_SIZE - 2 * inset);
+            line.setFill(TRANSPARENT);
+            line.setStroke(Color.web("#8d6b3f"));
+            line.setStrokeWidth(inset > POCKET_INSET + 18 ? 1 : 2);
+            boardGroup.getChildren().add(line);
+        }
+
+        // Centre circle group
+        Circle outerRing = new Circle(centerX(), centerY(), 58, TRANSPARENT);
+        outerRing.setStroke(Color.web("#8d6b3f"));
+        outerRing.setStrokeWidth(1.6);
+        Circle innerRing = new Circle(centerX(), centerY(), 48, TRANSPARENT);
+        innerRing.setStroke(Color.web("#c8433f"));
+        innerRing.setStrokeWidth(1.2);
+        Circle queenSpot = new Circle(centerX(), centerY(), 13, Color.web("#c8433f44"));
+        queenSpot.setStroke(Color.web("#c8433f"));
+        boardGroup.getChildren().addAll(outerRing, innerRing, queenSpot);
+
+        // Decorative diagonal arrows toward the corners
+        for (int sx = -1; sx <= 1; sx += 2) {
+            for (int sy = -1; sy <= 1; sy += 2) {
+                Line diag = new Line(
+                        centerX() + sx * 70, centerY() + sy * 70,
+                        centerX() + sx * 150, centerY() + sy * 150);
+                diag.setStroke(Color.web("#b08c55"));
+                diag.setStrokeWidth(1.2);
+                boardGroup.getChildren().add(diag);
+            }
+        }
+
+        // Baselines for both players
+        for (boolean forP1 : new boolean[]{true, false}) {
+            double y = baselineY(forP1);
+            double x0 = centerX() - BASELINE_HALF_WIDTH;
+            double x1 = centerX() + BASELINE_HALF_WIDTH;
+            for (double dy : new double[]{-STRIKER_RADIUS, STRIKER_RADIUS}) {
+                Line line = new Line(x0, y + dy, x1, y + dy);
+                line.setStroke(Color.web("#c8433f"));
+                line.setStrokeWidth(2);
+                boardGroup.getChildren().add(line);
+            }
+            for (double x : new double[]{x0, x1}) {
+                Circle end = new Circle(x, y, STRIKER_RADIUS, TRANSPARENT);
+                end.setStroke(Color.web("#c8433f"));
+                end.setStrokeWidth(2);
+                boardGroup.getChildren().add(end);
+            }
+        }
+
+        // Pockets
+        for (double[] c : pocketCenters()) {
+            Circle rim = new Circle(c[0], c[1], POCKET_RADIUS + 4, Color.web("#5d3a16"));
+            Circle hole = new Circle(c[0], c[1], POCKET_RADIUS, Color.web("#0b0b0b"));
+            hole.setEffect(new DropShadow(8, Color.web("#000000")));
+            boardGroup.getChildren().addAll(rim, hole);
+        }
+
+        // Highlight band showing where the active player may place the striker
+        strikerZone = new Rectangle(centerX() - BASELINE_HALF_WIDTH, 0,
+                BASELINE_HALF_WIDTH * 2, STRIKER_RADIUS * 2);
+        strikerZone.setFill(Color.web("#e9456022"));
+        strikerZone.setStroke(Color.web("#e9456088"));
+        strikerZone.setArcWidth(STRIKER_RADIUS * 2);
+        strikerZone.setArcHeight(STRIKER_RADIUS * 2);
+        boardGroup.getChildren().add(strikerZone);
+
+        pieceLayer = new Group();
+        boardGroup.getChildren().add(pieceLayer);
+    }
+
+    private void buildAimVisuals() {
+        dragLine = new Line();
+        dragLine.setStroke(Color.web("#ffffff55"));
+        dragLine.setStrokeWidth(2);
+        dragLine.getStrokeDashArray().addAll(4.0, 6.0);
+        dragLine.setVisible(false);
+
+        aimLine = new Line();
+        aimLine.setStroke(ACTIVE_GLOW);
+        aimLine.setStrokeWidth(3);
+        aimLine.getStrokeDashArray().addAll(9.0, 6.0);
+        aimLine.setVisible(false);
+
+        aimTip = new Circle(0, 0, 5, ACTIVE_GLOW);
+        aimTip.setVisible(false);
+
+        boardGroup.getChildren().addAll(dragLine, aimLine, aimTip);
+    }
+
+    private void buildHud() {
+        p2.card = profileCard(18, IDLE_STROKE);
+        p2.nameLabel = hudLabel(p2.name + " - dark coins", 62, 32, 14, Color.WHITE, true);
+        p2.scoreLabel = hudLabel("Score 0", 430, 26, 13, ACTIVE_GLOW, true);
+        p2.coinsLabel = hudLabel("Coins left 9", 430, 46, 12, Color.web("#9aa5c4"), false);
+
+        p1.card = profileCard(HEIGHT - 78, ACTIVE_GLOW);
+        p1.nameLabel = hudLabel(p1.name + " - light coins", 62, HEIGHT - 64, 14, Color.WHITE, true);
+        p1.scoreLabel = hudLabel("Score 0", 430, HEIGHT - 70, 13, ACTIVE_GLOW, true);
+        p1.coinsLabel = hudLabel("Coins left 9", 430, HEIGHT - 50, 12, Color.web("#9aa5c4"), false);
+
+        p2.dot = new Circle(48, 46, 8, p2.color);
+        p2.dot.setStroke(Color.web("#000000"));
+        p1.dot = new Circle(48, HEIGHT - 50, 8, p1.color);
+        p1.dot.setStroke(Color.web("#000000"));
+
+        statusLabel = centeredLabel("Player 1 to break", 96, 16, Color.WHITE, true);
+        hintLabel = centeredLabel("Drag the striker sideways to place it, then pull back and release to shoot",
+                118, 11.5, Color.web("#8f98b8"), false);
+        queenLabel = centeredLabel("Queen on board", boardBottom() + 18, 12, Color.web("#e8a0a8"), true);
+
+        Rectangle powerTrack = new Rectangle(centerX() - 110, boardBottom() + 44, 220, 10);
+        powerTrack.setFill(Color.web("#00000055"));
+        powerTrack.setStroke(Color.web("#ffffff22"));
+        powerTrack.setArcWidth(10);
+        powerTrack.setArcHeight(10);
+
+        powerFill = new Rectangle(centerX() - 110, boardBottom() + 44, 0, 10);
+        powerFill.setFill(new LinearGradient(0, 0, 1, 0, true, NO_CYCLE,
+                new Stop(0, Color.web("#4cc9f0")),
+                new Stop(0.6, Color.web("#f9c74f")),
+                new Stop(1, Color.web("#e94560"))));
+        powerFill.setArcWidth(10);
+        powerFill.setArcHeight(10);
+
+        root.getChildren().addAll(
+                p2.card, p2.dot, p2.nameLabel, p2.scoreLabel, p2.coinsLabel,
+                p1.card, p1.dot, p1.nameLabel, p1.scoreLabel, p1.coinsLabel,
+                statusLabel, hintLabel, queenLabel, powerTrack, powerFill);
+    }
+
+    private void buildOverlay() {
+        Rectangle shade = new Rectangle(WIDTH, HEIGHT, Color.web("#05050fdd"));
+        overlayTitle = centeredLabel("", HEIGHT / 2 - 50, 34, Color.WHITE, true);
+        overlaySubtitle = centeredLabel("", HEIGHT / 2 + 6, 15, Color.web("#c9d1e8"), false);
+        Label restart = centeredLabel("Press R to play again", HEIGHT / 2 + 46, 14, ACTIVE_GLOW, true);
+        overlay = new Group(shade, overlayTitle, overlaySubtitle, restart);
+        overlay.setVisible(false);
+        root.getChildren().add(overlay);
+    }
+
     @Override
     public void stop() throws Exception {
         closeConnection();
@@ -226,7 +403,7 @@ public class CaromNetworkGame extends Application {
             try {
                 socket = new Socket(address, port);
                 out = new PrintWriter(socket.getOutputStream(), true);
-                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
                 String colorAssignment = in.readLine();
                 if (!"WHITE".equals(colorAssignment) && !"BLACK".equals(colorAssignment)) {
@@ -271,7 +448,7 @@ public class CaromNetworkGame extends Application {
     }
 
     public void showNetworkError(String message) {
-        phase = Phase.GAME_OVER;
+        phase = GAME_OVER;
         dragMode = NONE;
         hideAimVisuals();
         statusLabel.setText(message);
@@ -347,12 +524,12 @@ public class CaromNetworkGame extends Application {
             awaitingRemoteState = false;
 
             strikerZone.setY(baselineY(player1Turn) - STRIKER_RADIUS);
-            strikerZone.setVisible(phase != Phase.GAME_OVER);
+            strikerZone.setVisible(phase != GAME_OVER);
 
             updateHud();
             updateTurnText();
 
-            if (phase == Phase.GAME_OVER) {
+            if (phase == GAME_OVER) {
                 Player winner = findWinner();
                 if (winner != null) endGame(winner);
             } else {
@@ -423,11 +600,11 @@ public class CaromNetworkGame extends Application {
     }
 
     private boolean gameEnded() {
-        return phase == Phase.GAME_OVER;
+        return phase == GAME_OVER;
     }
 
     private void updateTurnText() {
-        if (phase == Phase.GAME_OVER) {
+        if (phase == GAME_OVER) {
             return;
         }
 
@@ -506,169 +683,6 @@ public class CaromNetworkGame extends Application {
         return boardGroup.sceneToLocal(e.getSceneX(), e.getSceneY()).getY();
     }
 
-    // =====================================================================================
-    // Scene construction
-    // =====================================================================================
-
-    private void buildBackground() {
-        Rectangle bg = new Rectangle(WIDTH, HEIGHT);
-        bg.setFill(new LinearGradient(0, 0, 0, 1, true, CycleMethod.NO_CYCLE,
-                new Stop(0, Color.web("#12122a")),
-                new Stop(1, Color.web("#1f1f3d"))));
-
-        root.getChildren().add(0, bg);
-    }
-
-    private void buildBoard() {
-        Rectangle frame = new Rectangle(boardLeft() - 16, boardTop() - 16, BOARD_SIZE + 32, BOARD_SIZE + 32);
-        frame.setFill(new LinearGradient(0, 0, 1, 1, true, CycleMethod.NO_CYCLE,
-                new Stop(0, Color.web("#a9642a")),
-                new Stop(1, Color.web("#7a4318"))));
-        frame.setArcWidth(24);
-        frame.setArcHeight(24);
-        frame.setEffect(new DropShadow(24, Color.web("#000000cc")));
-        boardGroup.getChildren().add(frame);
-
-        Rectangle surface = new Rectangle(boardLeft(), boardTop(), BOARD_SIZE, BOARD_SIZE);
-        surface.setFill(new LinearGradient(0, 0, 1, 1, true, CycleMethod.NO_CYCLE,
-                new Stop(0, Color.web("#fbe8b8")),
-                new Stop(0.5, Color.web("#f2d99f")),
-                new Stop(1, Color.web("#e0c087"))));
-        boardGroup.getChildren().add(surface);
-
-        // Playing-area border lines
-        for (double inset : new double[]{POCKET_INSET + 16, POCKET_INSET + 20}) {
-            Rectangle line = new Rectangle(boardLeft() + inset, boardTop() + inset,
-                    BOARD_SIZE - 2 * inset, BOARD_SIZE - 2 * inset);
-            line.setFill(Color.TRANSPARENT);
-            line.setStroke(Color.web("#8d6b3f"));
-            line.setStrokeWidth(inset > POCKET_INSET + 18 ? 1 : 2);
-            boardGroup.getChildren().add(line);
-        }
-
-        // Centre circle group
-        Circle outerRing = new Circle(centerX(), centerY(), 58, Color.TRANSPARENT);
-        outerRing.setStroke(Color.web("#8d6b3f"));
-        outerRing.setStrokeWidth(1.6);
-        Circle innerRing = new Circle(centerX(), centerY(), 48, Color.TRANSPARENT);
-        innerRing.setStroke(Color.web("#c8433f"));
-        innerRing.setStrokeWidth(1.2);
-        Circle queenSpot = new Circle(centerX(), centerY(), 13, Color.web("#c8433f44"));
-        queenSpot.setStroke(Color.web("#c8433f"));
-        boardGroup.getChildren().addAll(outerRing, innerRing, queenSpot);
-
-        // Decorative diagonal arrows toward the corners
-        for (int sx = -1; sx <= 1; sx += 2) {
-            for (int sy = -1; sy <= 1; sy += 2) {
-                Line diag = new Line(
-                        centerX() + sx * 70, centerY() + sy * 70,
-                        centerX() + sx * 150, centerY() + sy * 150);
-                diag.setStroke(Color.web("#b08c55"));
-                diag.setStrokeWidth(1.2);
-                boardGroup.getChildren().add(diag);
-            }
-        }
-
-        // Baselines for both players
-        for (boolean forP1 : new boolean[]{true, false}) {
-            double y = baselineY(forP1);
-            double x0 = centerX() - BASELINE_HALF_WIDTH;
-            double x1 = centerX() + BASELINE_HALF_WIDTH;
-            for (double dy : new double[]{-STRIKER_RADIUS, STRIKER_RADIUS}) {
-                Line line = new Line(x0, y + dy, x1, y + dy);
-                line.setStroke(Color.web("#c8433f"));
-                line.setStrokeWidth(2);
-                boardGroup.getChildren().add(line);
-            }
-            for (double x : new double[]{x0, x1}) {
-                Circle end = new Circle(x, y, STRIKER_RADIUS, Color.TRANSPARENT);
-                end.setStroke(Color.web("#c8433f"));
-                end.setStrokeWidth(2);
-                boardGroup.getChildren().add(end);
-            }
-        }
-
-        // Pockets
-        for (double[] c : pocketCenters()) {
-            Circle rim = new Circle(c[0], c[1], POCKET_RADIUS + 4, Color.web("#5d3a16"));
-            Circle hole = new Circle(c[0], c[1], POCKET_RADIUS, Color.web("#0b0b0b"));
-            hole.setEffect(new DropShadow(8, Color.web("#000000")));
-            boardGroup.getChildren().addAll(rim, hole);
-        }
-
-        // Highlight band showing where the active player may place the striker
-        strikerZone = new Rectangle(centerX() - BASELINE_HALF_WIDTH, 0,
-                BASELINE_HALF_WIDTH * 2, STRIKER_RADIUS * 2);
-        strikerZone.setFill(Color.web("#e9456022"));
-        strikerZone.setStroke(Color.web("#e9456088"));
-        strikerZone.setArcWidth(STRIKER_RADIUS * 2);
-        strikerZone.setArcHeight(STRIKER_RADIUS * 2);
-        boardGroup.getChildren().add(strikerZone);
-
-        pieceLayer = new Group();
-        boardGroup.getChildren().add(pieceLayer);
-    }
-
-    private void buildAimVisuals() {
-        dragLine = new Line();
-        dragLine.setStroke(Color.web("#ffffff55"));
-        dragLine.setStrokeWidth(2);
-        dragLine.getStrokeDashArray().addAll(4.0, 6.0);
-        dragLine.setVisible(false);
-
-        aimLine = new Line();
-        aimLine.setStroke(ACTIVE_GLOW);
-        aimLine.setStrokeWidth(3);
-        aimLine.getStrokeDashArray().addAll(9.0, 6.0);
-        aimLine.setVisible(false);
-
-        aimTip = new Circle(0, 0, 5, ACTIVE_GLOW);
-        aimTip.setVisible(false);
-
-        boardGroup.getChildren().addAll(dragLine, aimLine, aimTip);
-    }
-
-    private void buildHud() {
-        p2.card = profileCard(18, IDLE_STROKE);
-        p2.nameLabel = hudLabel(p2.name + " - dark coins", 62, 32, 14, Color.WHITE, true);
-        p2.scoreLabel = hudLabel("Score 0", 430, 26, 13, ACTIVE_GLOW, true);
-        p2.coinsLabel = hudLabel("Coins left 9", 430, 46, 12, Color.web("#9aa5c4"), false);
-
-        p1.card = profileCard(HEIGHT - 78, ACTIVE_GLOW);
-        p1.nameLabel = hudLabel(p1.name + " - light coins", 62, HEIGHT - 64, 14, Color.WHITE, true);
-        p1.scoreLabel = hudLabel("Score 0", 430, HEIGHT - 70, 13, ACTIVE_GLOW, true);
-        p1.coinsLabel = hudLabel("Coins left 9", 430, HEIGHT - 50, 12, Color.web("#9aa5c4"), false);
-
-        p2.dot = new Circle(48, 46, 8, p2.color);
-        p2.dot.setStroke(Color.web("#000000"));
-        p1.dot = new Circle(48, HEIGHT - 50, 8, p1.color);
-        p1.dot.setStroke(Color.web("#000000"));
-
-        statusLabel = centeredLabel("Player 1 to break", 96, 16, Color.WHITE, true);
-        hintLabel = centeredLabel("Drag the striker sideways to place it, then pull back and release to shoot",
-                118, 11.5, Color.web("#8f98b8"), false);
-        queenLabel = centeredLabel("Queen on board", boardBottom() + 18, 12, Color.web("#e8a0a8"), true);
-
-        powerTrack = new Rectangle(centerX() - 110, boardBottom() + 44, 220, 10);
-        powerTrack.setFill(Color.web("#00000055"));
-        powerTrack.setStroke(Color.web("#ffffff22"));
-        powerTrack.setArcWidth(10);
-        powerTrack.setArcHeight(10);
-
-        powerFill = new Rectangle(centerX() - 110, boardBottom() + 44, 0, 10);
-        powerFill.setFill(new LinearGradient(0, 0, 1, 0, true, CycleMethod.NO_CYCLE,
-                new Stop(0, Color.web("#4cc9f0")),
-                new Stop(0.6, Color.web("#f9c74f")),
-                new Stop(1, Color.web("#e94560"))));
-        powerFill.setArcWidth(10);
-        powerFill.setArcHeight(10);
-
-        root.getChildren().addAll(
-                p2.card, p2.dot, p2.nameLabel, p2.scoreLabel, p2.coinsLabel,
-                p1.card, p1.dot, p1.nameLabel, p1.scoreLabel, p1.coinsLabel,
-                statusLabel, hintLabel, queenLabel, powerTrack, powerFill);
-    }
-
     private Rectangle profileCard(double y, Color stroke) {
         Rectangle card = new Rectangle(30, y, WIDTH - 60, 60);
         card.setFill(Color.web("#16213e"));
@@ -697,16 +711,6 @@ public class CaromNetworkGame extends Application {
         label.setLayoutX(0);
         label.setLayoutY(y);
         return label;
-    }
-
-    private void buildOverlay() {
-        Rectangle shade = new Rectangle(WIDTH, HEIGHT, Color.web("#05050fdd"));
-        overlayTitle = centeredLabel("", HEIGHT / 2 - 50, 34, Color.WHITE, true);
-        overlaySubtitle = centeredLabel("", HEIGHT / 2 + 6, 15, Color.web("#c9d1e8"), false);
-        Label restart = centeredLabel("Press R to play again", HEIGHT / 2 + 46, 14, ACTIVE_GLOW, true);
-        overlay = new Group(shade, overlayTitle, overlaySubtitle, restart);
-        overlay.setVisible(false);
-        root.getChildren().add(overlay);
     }
 
     // =====================================================================================
@@ -814,7 +818,7 @@ public class CaromNetworkGame extends Application {
             sendMessage("PLACE|" + striker.x + "|" + striker.y);
         }
 
-        dragMode = (onStriker || inBand) ? DragMode.UNDECIDED : NONE;
+        dragMode = (onStriker || inBand) ? UNDECIDED : NONE;
     }
 
     public void applyRemoteStrikerPlacement(double strikerX, double strikerY) {
@@ -865,7 +869,7 @@ public class CaromNetworkGame extends Application {
         double mouseX = boardMouseX(e);
         double mouseY = boardMouseY(e);
 
-        if (dragMode == DragMode.UNDECIDED) {
+        if (dragMode == UNDECIDED) {
             double dx = mouseX - pressX;
             double dy = mouseY - pressY;
             if (Math.hypot(dx, dy) < 6) {
@@ -873,10 +877,10 @@ public class CaromNetworkGame extends Application {
             }
 
             boolean stayedOnBaseline = Math.abs(mouseY - baselineY(player1Turn)) <= STRIKER_RADIUS + 10;
-            dragMode = (stayedOnBaseline && Math.abs(dx) > Math.abs(dy)) ? DragMode.MOVE : DragMode.AIM;
+            dragMode = (stayedOnBaseline && Math.abs(dx) > Math.abs(dy)) ? MOVE : AIM;
         }
 
-        if (dragMode == DragMode.MOVE) {
+        if (dragMode == MOVE) {
             placeStrikerAt(mouseX);
             hideAimVisuals();
 
@@ -894,7 +898,7 @@ public class CaromNetworkGame extends Application {
         dragMode = NONE;
         hideAimVisuals();
 
-        if (!connected || !isMyTurn || mode != DragMode.AIM || phase != READY) {
+        if (!connected || !isMyTurn || mode != AIM || phase != READY) {
             return;
         }
 
@@ -1441,7 +1445,7 @@ public class CaromNetworkGame extends Application {
     }
 
     private void endGame(Player winner) {
-        phase = Phase.GAME_OVER;
+        phase = GAME_OVER;
         dragMode = NONE;
         hideAimVisuals();
         updateHud();
@@ -1468,14 +1472,14 @@ public class CaromNetworkGame extends Application {
                     + (p.hasQueen() ? "   Queen" : ""));
         }
 
-        boolean p1Active = player1Turn && phase != Phase.GAME_OVER;
+        boolean p1Active = player1Turn && phase != GAME_OVER;
         p1.card.setStroke(p1Active ? ACTIVE_GLOW : IDLE_STROKE);
-        p2.card.setStroke(!p1Active && phase != Phase.GAME_OVER ? ACTIVE_GLOW : IDLE_STROKE);
+        p2.card.setStroke(!p1Active && phase != GAME_OVER ? ACTIVE_GLOW : IDLE_STROKE);
         p1.card.setStrokeWidth(p1Active ? 3 : 2);
-        p2.card.setStrokeWidth(!p1Active && phase != Phase.GAME_OVER ? 3 : 2);
+        p2.card.setStrokeWidth(!p1Active && phase != GAME_OVER ? 3 : 2);
 
         strikerZone.setY(baselineY(player1Turn) - STRIKER_RADIUS);
-        strikerZone.setVisible(phase != Phase.GAME_OVER);
+        strikerZone.setVisible(phase != GAME_OVER);
 
         if (queenOwner != null) {
             queenLabel.setText("Queen claimed by " + queenOwner.name);
