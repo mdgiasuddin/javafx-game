@@ -8,7 +8,6 @@ import javafx.scene.Group;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.effect.DropShadow;
-import javafx.scene.input.KeyCode;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
@@ -36,8 +35,12 @@ import static com.example.javagame.caromnetwork.DragMode.NONE;
 import static com.example.javagame.caromnetwork.DragMode.UNDECIDED;
 import static com.example.javagame.caromnetwork.Kind.DARK;
 import static com.example.javagame.caromnetwork.Kind.LIGHT;
+import static com.example.javagame.caromnetwork.Kind.QUEEN;
+import static com.example.javagame.caromnetwork.Kind.STRIKER;
 import static com.example.javagame.caromnetwork.Phase.GAME_OVER;
 import static com.example.javagame.caromnetwork.Phase.READY;
+import static com.example.javagame.caromnetwork.Phase.SHOOTING;
+import static javafx.scene.input.KeyCode.R;
 import static javafx.scene.paint.Color.TRANSPARENT;
 import static javafx.scene.paint.CycleMethod.NO_CYCLE;
 
@@ -183,7 +186,7 @@ public class CaromNetworkGame extends Application {
         root.setOnMouseDragged(this::onMouseDragged);
         root.setOnMouseReleased(this::onMouseReleased);
         scene.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.R && connected && gameEnded()) {
+            if (e.getCode() == R && connected && gameEnded()) {
                 sendMessage("RESET");
                 newGame();
             }
@@ -194,7 +197,7 @@ public class CaromNetworkGame extends Application {
         new AnimationTimer() {
             @Override
             public void handle(long now) {
-                if (phase != Phase.SHOOTING || lastFrameNanos == 0) {
+                if (phase != SHOOTING || lastFrameNanos == 0) {
                     lastFrameNanos = now;
                     return;
                 }
@@ -472,7 +475,7 @@ public class CaromNetworkGame extends Application {
     }
 
     public void applyStateMessage(String line) {
-        if (phase == Phase.SHOOTING && shotOwnedByMe) {
+        if (phase == SHOOTING && shotOwnedByMe) {
             // Our own shot is still travelling, so this state predates it and would rewind us.
             return;
         }
@@ -561,7 +564,7 @@ public class CaromNetworkGame extends Application {
         double vx = Double.parseDouble(values[3]);
         double vy = Double.parseDouble(values[4]);
 
-        double radius = kind == Kind.STRIKER ? STRIKER_RADIUS : COIN_RADIUS;
+        double radius = kind == STRIKER ? STRIKER_RADIUS : COIN_RADIUS;
         CaromPiece piece = new CaromPiece(x, y, radius, kind);
         piece.vx = vx;
         piece.vy = vy;
@@ -580,7 +583,7 @@ public class CaromNetworkGame extends Application {
         }
 
         if (!pieces.contains(striker)) {
-            striker = new CaromPiece(strikerX, strikerY, STRIKER_RADIUS, Kind.STRIKER);
+            striker = new CaromPiece(strikerX, strikerY, STRIKER_RADIUS, STRIKER);
             addPiece(striker);
         }
 
@@ -593,7 +596,7 @@ public class CaromNetworkGame extends Application {
         pocketedThisShot.clear();
         strikerPocketedThisShot = false;
         strikerTouchedCoin = false;
-        phase = Phase.SHOOTING;
+        phase = SHOOTING;
         dragMode = NONE;
         hideAimVisuals();
         hintLabel.setText("");
@@ -739,7 +742,7 @@ public class CaromNetworkGame extends Application {
 
         layoutCoins();
 
-        striker = new CaromPiece(centerX(), baselineY(true), STRIKER_RADIUS, Kind.STRIKER);
+        striker = new CaromPiece(centerX(), baselineY(true), STRIKER_RADIUS, STRIKER);
         addPiece(striker);
 
         updateHud();
@@ -757,7 +760,7 @@ public class CaromNetworkGame extends Application {
      * Classic flower layout: queen in the middle, a ring of 6, then a ring of 12.
      */
     private void layoutCoins() {
-        addPiece(new CaromPiece(centerX(), centerY(), COIN_RADIUS, Kind.QUEEN));
+        addPiece(new CaromPiece(centerX(), centerY(), COIN_RADIUS, QUEEN));
 
         addRing(6, 2 * COIN_RADIUS, 0);
         addRing(12, 4 * COIN_RADIUS, Math.PI / 12);
@@ -827,7 +830,7 @@ public class CaromNetworkGame extends Application {
         }
 
         if (!pieces.contains(striker)) {
-            striker = new CaromPiece(strikerX, strikerY, STRIKER_RADIUS, Kind.STRIKER);
+            striker = new CaromPiece(strikerX, strikerY, STRIKER_RADIUS, STRIKER);
             addPiece(striker);
         }
 
@@ -921,7 +924,7 @@ public class CaromNetworkGame extends Application {
         pocketedThisShot.clear();
         strikerPocketedThisShot = false;
         strikerTouchedCoin = false;
-        phase = Phase.SHOOTING;
+        phase = SHOOTING;
         isMyTurn = false;
         shotOwnedByMe = true;
         awaitingRemoteState = false;
@@ -945,14 +948,14 @@ public class CaromNetworkGame extends Application {
      */
     private double nearestLegalStrikerX(double desired, double y) {
         double target = Math.clamp(desired, strikerMinX(), strikerMaxX());
-        if (!overlapsAnyCoin(target, y, STRIKER_RADIUS)) return target;
+        if (noOverlapsCoin(target, y)) return target;
 
         double span = strikerMaxX() - strikerMinX();
         for (double offset = 2; offset <= span; offset += 2) {
             for (int side = -1; side <= 1; side += 2) {
                 double candidate = target + side * offset;
                 if (candidate < strikerMinX() || candidate > strikerMaxX()) continue;
-                if (!overlapsAnyCoin(candidate, y, STRIKER_RADIUS)) return candidate;
+                if (noOverlapsCoin(candidate, y)) return candidate;
             }
         }
         return target; // baseline fully blocked - very unlikely, but keep the striker somewhere
@@ -960,7 +963,7 @@ public class CaromNetworkGame extends Application {
 
     /**
      * Pull-back aiming: the shot travels opposite the drag. The direction is clamped to the
-     * forward half of the board so a player cannot shoot backwards off their own baseline.
+     * forward half of the board, so a player cannot shoot backwards off their own baseline.
      */
     private void computeAim(double mouseX, double mouseY) {
         double dragX = mouseX - striker.x;
@@ -1131,7 +1134,7 @@ public class CaromNetworkGame extends Application {
         double relN = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
         if (relN <= 0) return; // already separating
 
-        if (a.kind == Kind.STRIKER || b.kind == Kind.STRIKER) strikerTouchedCoin = true;
+        if (a.kind == STRIKER || b.kind == STRIKER) strikerTouchedCoin = true;
 
         double impulse = (1 + COIN_BOUNCE) * relN / (invA + invB);
         a.vx -= impulse * invA * nx;
@@ -1148,11 +1151,11 @@ public class CaromNetworkGame extends Application {
             pieces.remove(i);
             pieceLayer.getChildren().remove(p.node);
 
-            if (p.kind == Kind.STRIKER) {
+            if (p.kind == STRIKER) {
                 strikerPocketedThisShot = true;
             } else {
                 pocketedThisShot.add(p.kind);
-                if (p.kind == Kind.QUEEN) queenOnBoard = false;
+                if (p.kind == QUEEN) queenOnBoard = false;
             }
         }
     }
@@ -1186,7 +1189,7 @@ public class CaromNetworkGame extends Application {
         int rivalPocketed = 0;
         boolean queenPocketed = false;
         for (Kind kind : pocketedThisShot) {
-            if (kind == Kind.QUEEN) queenPocketed = true;
+            if (kind == QUEEN) queenPocketed = true;
             else if (kind == shooter.coin) ownPocketed++;
             else rivalPocketed++;
         }
@@ -1301,7 +1304,7 @@ public class CaromNetworkGame extends Application {
 
         int nonStrikerCount = 0;
         for (CaromPiece piece : pieces) {
-            if (piece.kind != Kind.STRIKER) {
+            if (piece.kind != STRIKER) {
                 nonStrikerCount++;
             }
         }
@@ -1309,7 +1312,7 @@ public class CaromNetworkGame extends Application {
         message.append("|").append(nonStrikerCount);
 
         for (CaromPiece piece : pieces) {
-            if (piece.kind == Kind.STRIKER) {
+            if (piece.kind == STRIKER) {
                 continue;
             }
 
@@ -1355,7 +1358,7 @@ public class CaromNetworkGame extends Application {
      */
     private void restoreQueenIfUnclaimed() {
         queenPendingCoverBy = null;
-        if (!queenOnBoard && queenOwner == null && spawnPiece(Kind.QUEEN)) queenOnBoard = true;
+        if (!queenOnBoard && queenOwner == null && spawnPiece(QUEEN)) queenOnBoard = true;
     }
 
     private boolean returnCoinToBoard(Kind coin) {
@@ -1397,18 +1400,18 @@ public class CaromNetworkGame extends Application {
         return true;
     }
 
-    private boolean overlapsAnyCoin(double x, double y, double radius) {
+    private boolean noOverlapsCoin(double x, double y) {
         for (CaromPiece p : pieces) {
             if (p == striker) continue;
-            if (Math.hypot(x - p.x, y - p.y) < radius + p.radius + 0.5) return true;
+            if (Math.hypot(x - p.x, y - p.y) < STRIKER_RADIUS + p.radius + 0.5) return false;
         }
-        return false;
+        return true;
     }
 
     private void placeStrikerForTurn() {
         double y = baselineY(player1Turn);
         if (!pieces.contains(striker)) {
-            striker = new CaromPiece(centerX(), y, STRIKER_RADIUS, Kind.STRIKER);
+            striker = new CaromPiece(centerX(), y, STRIKER_RADIUS, STRIKER);
             addPiece(striker);
         }
         striker.vx = 0;
@@ -1436,7 +1439,7 @@ public class CaromNetworkGame extends Application {
             queenPendingCoverBy = null;
             queenOnBoard = false;
             for (int i = pieces.size() - 1; i >= 0; i--) {
-                if (pieces.get(i).kind == Kind.QUEEN) {
+                if (pieces.get(i).kind == QUEEN) {
                     pieceLayer.getChildren().remove(pieces.remove(i).node);
                 }
             }
