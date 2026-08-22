@@ -119,6 +119,9 @@ public class CaromNetworkGame extends Application {
     public static final double COIN_MASS = 1.0;
     private static final double REST_SPEED = 0.02;
 
+    private static final double TURN_TIME_LIMIT_SECONDS = 12.0;
+    private static final long TURN_TIME_LIMIT_NANOS = (long) (TURN_TIME_LIMIT_SECONDS * 1_000_000_000L);
+
     // ---- Palette ----------------------------------------------------------------------
     public static final Color LIGHT_COIN = Color.web("#f6e7c4");
     public static final Color DARK_COIN = Color.web("#2b2118");
@@ -135,7 +138,8 @@ public class CaromNetworkGame extends Application {
 
     private Phase phase = READY;
     private DragMode dragMode = NONE;
-    private long lastFrameNanos;
+    private long lastFrameNanos = 0;
+    private long turnDeadlineNanos = 0; // 0 = no active countdown
     private double pressX, pressY;
     private double aimDirX, aimDirY, aimPower;
 
@@ -161,6 +165,7 @@ public class CaromNetworkGame extends Application {
     private Circle aimTip;
     private Rectangle powerFill;
     private Label statusLabel, hintLabel, queenLabel;
+    private Label timerLabel;
     private Group overlay;
     private Label overlayTitle, overlaySubtitle;
 
@@ -197,6 +202,8 @@ public class CaromNetworkGame extends Application {
         new AnimationTimer() {
             @Override
             public void handle(long now) {
+                updateTurnTimer(now);
+
                 if (phase != SHOOTING || lastFrameNanos == 0) {
                     lastFrameNanos = now;
                     return;
@@ -365,6 +372,9 @@ public class CaromNetworkGame extends Application {
                 118, 11.5, Color.web("#8f98b8"), false);
         queenLabel = centeredLabel("Queen on board", boardBottom() + 18, 12, Color.web("#e8a0a8"), true);
 
+        timerLabel = centeredLabel("Time left: ", boardBottom() + 64, 18, ACTIVE_GLOW, true);
+        timerLabel.setVisible(false);
+
         Rectangle powerTrack = new Rectangle(centerX() - 110, boardBottom() + 44, 220, 10);
         powerTrack.setFill(Color.web("#00000055"));
         powerTrack.setStroke(Color.web("#ffffff22"));
@@ -382,7 +392,8 @@ public class CaromNetworkGame extends Application {
         root.getChildren().addAll(
                 p2.card, p2.dot, p2.nameLabel, p2.scoreLabel, p2.coinsLabel,
                 p1.card, p1.dot, p1.nameLabel, p1.scoreLabel, p1.coinsLabel,
-                statusLabel, hintLabel, queenLabel, powerTrack, powerFill);
+                statusLabel, hintLabel, queenLabel, timerLabel, powerTrack,
+                powerFill);
     }
 
     private void buildOverlay() {
@@ -433,6 +444,8 @@ public class CaromNetworkGame extends Application {
             statusLabel.setText(p1.name + " to break");
             hintLabel.setText("Drag the striker sideways to place it, then pull back and release to shoot");
         }
+
+        startTurnTimer();
     }
 
     @Override
@@ -494,6 +507,7 @@ public class CaromNetworkGame extends Application {
         phase = GAME_OVER;
         dragMode = NONE;
         hideAimVisuals();
+        stopTurnTimer();
         statusLabel.setText(message);
         hintLabel.setText("");
     }
@@ -573,10 +587,12 @@ public class CaromNetworkGame extends Application {
             updateTurnText();
 
             if (phase == GAME_OVER) {
+                stopTurnTimer();
                 Player winner = findWinner();
                 if (winner != null) endGame(winner);
             } else {
                 overlay.setVisible(false);
+                startTurnTimer();
             }
         } catch (RuntimeException e) {
             showNetworkError("Received corrupted board state.");
@@ -640,6 +656,8 @@ public class CaromNetworkGame extends Application {
         dragMode = NONE;
         hideAimVisuals();
         hintLabel.setText("");
+
+        stopTurnTimer();
     }
 
     private boolean gameEnded() {
@@ -664,6 +682,78 @@ public class CaromNetworkGame extends Application {
             statusLabel.setText("OPPONENT'S TURN");
             hintLabel.setText("Wait for your opponent to shoot");
         }
+    }
+
+    // =====================================================================================
+// Turn timer
+// =====================================================================================
+
+    /**
+     * True if this client is the one responsible for deciding a timeout on the current turn -
+     * the single client in hot-seat mode, or whichever client's color is currently up over the
+     * network. Mirrors how shot outcomes are owned by the shooter's client.
+     */
+    private boolean ownsCurrentTurn() {
+        return !connected || isMyTurn;
+    }
+
+    private void startTurnTimer() {
+        turnDeadlineNanos = System.nanoTime() + TURN_TIME_LIMIT_NANOS;
+    }
+
+    private void stopTurnTimer() {
+        turnDeadlineNanos = 0;
+        timerLabel.setVisible(false);
+    }
+
+    private void updateTurnTimer(long now) {
+        if (phase != READY || turnDeadlineNanos == 0 || !ownsCurrentTurn()) {
+            timerLabel.setVisible(false);
+            return;
+        }
+
+        double remaining = (turnDeadlineNanos - now) / 1_000_000_000.0;
+
+        if (remaining <= 0) {
+            turnDeadlineNanos = 0;
+            timerLabel.setVisible(false);
+            forfeitTurnOnTimeout();
+            return;
+        }
+
+        timerLabel.setVisible(true);
+        timerLabel.setText("Time left: " + (int) Math.ceil(remaining) + "s");
+        timerLabel.setTextFill(remaining <= 3 ? Color.web("#ff4d4d") : ACTIVE_GLOW);
+    }
+
+    /**
+     * The active player let the clock run out - the turn passes exactly as a foul would,
+     * without them ever touching the striker.
+     */
+    private void forfeitTurnOnTimeout() {
+        if (phase != READY) return;
+
+        dragMode = NONE;
+        hideAimVisuals();
+
+        String loserName = current().name;
+        player1Turn = !player1Turn;
+        phase = READY;
+        placeStrikerForTurn();
+        statusLabel.setText(loserName + " ran out of time - turn passes");
+        updateHud();
+
+        if (connected) {
+            sendMessage("CLEAR_AIM");
+            sendMessage(createStateMessage());
+            awaitingRemoteState = false;
+            updateTurnText();
+        } else {
+            hintLabel.setText(current().name + " to shoot from the "
+                    + (player1Turn ? "bottom" : "top") + " baseline");
+        }
+
+        startTurnTimer();
     }
 
     // =====================================================================================
@@ -889,6 +979,8 @@ public class CaromNetworkGame extends Application {
         shotOwnedByMe = true;
         awaitingRemoteState = false;
         hintLabel.setText("");
+
+        stopTurnTimer();
     }
 
     public void applyRemoteStrikerPlacement(double strikerX, double strikerY) {
@@ -1268,6 +1360,9 @@ public class CaromNetworkGame extends Application {
 
         phase = READY;
         placeStrikerForTurn();
+        if (shotOwnedByMe || !connected) {
+            startTurnTimer();
+        }
         statusLabel.setText(message);
 
         updateHud();
@@ -1451,6 +1546,7 @@ public class CaromNetworkGame extends Application {
         phase = GAME_OVER;
         dragMode = NONE;
         hideAimVisuals();
+        stopTurnTimer();
         updateHud();
 
         overlayTitle.setText(winner.name + " wins!");
