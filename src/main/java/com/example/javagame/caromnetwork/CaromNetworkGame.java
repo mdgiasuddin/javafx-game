@@ -3,7 +3,6 @@ package com.example.javagame.caromnetwork;
 import javafx.animation.AnimationTimer;
 import javafx.application.Application;
 import javafx.application.Platform;
-import javafx.geometry.Pos;
 import javafx.scene.Group;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
@@ -17,7 +16,6 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
-import javafx.scene.text.FontWeight;
 import javafx.scene.transform.Rotate;
 import javafx.stage.Stage;
 
@@ -40,9 +38,11 @@ import static com.example.javagame.caromnetwork.Kind.STRIKER;
 import static com.example.javagame.caromnetwork.Phase.GAME_OVER;
 import static com.example.javagame.caromnetwork.Phase.READY;
 import static com.example.javagame.caromnetwork.Phase.SHOOTING;
+import static javafx.geometry.Pos.CENTER;
 import static javafx.scene.input.KeyCode.R;
 import static javafx.scene.paint.Color.TRANSPARENT;
 import static javafx.scene.paint.CycleMethod.NO_CYCLE;
+import static javafx.scene.text.FontWeight.BOLD;
 
 /**
  * Hot-seat two player Carom.
@@ -70,7 +70,7 @@ public class CaromNetworkGame extends Application {
      */
     private boolean shotOwnedByMe = false;
     /**
-     * True once a shot fired by the opponent has come to rest locally, until their authoritative
+     * True, once a shot fired by the opponent has come to rest locally, until their authoritative
      * state message lands. Both clients simulate every shot, but frame timing differs, so the two
      * simulations can disagree about the outcome; the non-shooter waits instead of acting on its
      * own copy.
@@ -395,6 +395,46 @@ public class CaromNetworkGame extends Application {
         root.getChildren().add(overlay);
     }
 
+    // =====================================================================================
+    // Game setup / reset
+    // =====================================================================================
+
+    public void newGame() {
+        pieces.clear();
+        pieceLayer.getChildren().clear();
+
+        p1.reset();
+        p2.reset();
+        queenOnBoard = true;
+        setQueenOwner(null);
+        queenPendingCoverBy = null;
+        player1Turn = true;
+        phase = READY;
+        dragMode = NONE;
+        pocketedThisShot.clear();
+        strikerPocketedThisShot = false;
+        strikerTouchedCoin = false;
+        shotOwnedByMe = false;
+        awaitingRemoteState = false;
+        overlay.setVisible(false);
+        hideAimVisuals();
+
+        layoutCoins();
+
+        striker = new CaromPiece(centerX(), baselineY(true), STRIKER_RADIUS, STRIKER);
+        addPiece(striker);
+
+        updateHud();
+
+        if (connected) {
+            // A reset leaves the break with Player 1, so both clients must recompute who that is.
+            updateTurnText();
+        } else {
+            statusLabel.setText(p1.name + " to break");
+            hintLabel.setText("Drag the striker sideways to place it, then pull back and release to shoot");
+        }
+    }
+
     @Override
     public void stop() throws Exception {
         closeConnection();
@@ -698,7 +738,7 @@ public class CaromNetworkGame extends Application {
 
     private Label hudLabel(String text, double x, double y, double size, Color fill, boolean bold) {
         Label label = new Label(text);
-        label.setFont(bold ? Font.font("System", FontWeight.BOLD, size) : Font.font("System", size));
+        label.setFont(bold ? Font.font("System", BOLD, size) : Font.font("System", size));
         label.setTextFill(fill);
         label.setLayoutX(x);
         label.setLayoutY(y);
@@ -707,53 +747,13 @@ public class CaromNetworkGame extends Application {
 
     private Label centeredLabel(String text, double y, double size, Color fill, boolean bold) {
         Label label = new Label(text);
-        label.setFont(bold ? Font.font("System", FontWeight.BOLD, size) : Font.font("System", size));
+        label.setFont(bold ? Font.font("System", BOLD, size) : Font.font("System", size));
         label.setTextFill(fill);
         label.setPrefWidth(WIDTH);
-        label.setAlignment(Pos.CENTER);
+        label.setAlignment(CENTER);
         label.setLayoutX(0);
         label.setLayoutY(y);
         return label;
-    }
-
-    // =====================================================================================
-    // Game setup / reset
-    // =====================================================================================
-
-    public void newGame() {
-        pieces.clear();
-        pieceLayer.getChildren().clear();
-
-        p1.reset();
-        p2.reset();
-        queenOnBoard = true;
-        setQueenOwner(null);
-        queenPendingCoverBy = null;
-        player1Turn = true;
-        phase = READY;
-        dragMode = NONE;
-        pocketedThisShot.clear();
-        strikerPocketedThisShot = false;
-        strikerTouchedCoin = false;
-        shotOwnedByMe = false;
-        awaitingRemoteState = false;
-        overlay.setVisible(false);
-        hideAimVisuals();
-
-        layoutCoins();
-
-        striker = new CaromPiece(centerX(), baselineY(true), STRIKER_RADIUS, STRIKER);
-        addPiece(striker);
-
-        updateHud();
-
-        if (connected) {
-            // A reset leaves the break with Player 1, so both clients must recompute who that is.
-            updateTurnText();
-        } else {
-            statusLabel.setText(p1.name + " to break");
-            hintLabel.setText("Drag the striker sideways to place it, then pull back and release to shoot");
-        }
     }
 
     /**
@@ -1113,9 +1113,9 @@ public class CaromNetworkGame extends Application {
 
         if (dist < 1e-6) {
             // Perfectly stacked - nudge apart along a fixed axis to keep the maths finite.
-            dx = minDist;
+            dx = 1;
             dy = 0;
-            dist = minDist;
+            dist = 1;
         }
 
         double nx = dx / dist;
@@ -1373,7 +1373,7 @@ public class CaromNetworkGame extends Application {
     }
 
     /**
-     * Spiral outward from the centre spot until a gap wide enough for a coin appears.
+     * Spiral outward from the center spot until a gap wide enough for a coin appears.
      */
     private double[] findFreeSpot(double radius) {
         for (double r = 0; r <= BOARD_SIZE / 2 - radius; r += radius) {
