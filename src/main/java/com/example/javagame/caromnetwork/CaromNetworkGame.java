@@ -62,9 +62,9 @@ public class CaromNetworkGame extends Application {
     private boolean playerIsWhite = true;
     private boolean isMyTurn = false;
     /**
-     * True while the shot in flight was fired by this client. The shooter's client is the only
+     * True while this client fired the shot in flight. The shooter's client is the only
      * one allowed to decide how a shot ended and to broadcast the resulting board, so this is
-     * set the moment a shot starts rather than cleared once one finishes - a flag that is only
+     * set the moment a shot starts rather than cleared once one finishes - a flag only
      * cleared on resolution goes stale whenever a state message cuts a simulation short, and a
      * stale flag silently suppresses the next broadcast.
      */
@@ -232,7 +232,7 @@ public class CaromNetworkGame extends Application {
                 new Stop(0, Color.web("#12122a")),
                 new Stop(1, Color.web("#1f1f3d"))));
 
-        root.getChildren().add(0, bg);
+        root.getChildren().addFirst(bg);
     }
 
     private void buildBoard() {
@@ -476,7 +476,7 @@ public class CaromNetworkGame extends Application {
 
     public void applyStateMessage(String line) {
         if (phase == SHOOTING && shotOwnedByMe) {
-            // Our own shot is still travelling, so this state predates it and would rewind us.
+            // Our own shot is still traveling, so this state predates it and would rewind us.
             return;
         }
 
@@ -824,46 +824,6 @@ public class CaromNetworkGame extends Application {
         dragMode = (onStriker || inBand) ? UNDECIDED : NONE;
     }
 
-    public void applyRemoteStrikerPlacement(double strikerX, double strikerY) {
-        if (phase != READY) {
-            return;
-        }
-
-        if (!pieces.contains(striker)) {
-            striker = new CaromPiece(strikerX, strikerY, STRIKER_RADIUS, STRIKER);
-            addPiece(striker);
-        }
-
-        striker.x = nearestLegalStrikerX(strikerX, strikerY);
-        striker.y = strikerY;
-        striker.vx = 0;
-        striker.vy = 0;
-        striker.updateNodePosition();
-    }
-
-    public void showRemoteAimVisuals(double strikerX, double strikerY, double dirX, double dirY, double power) {
-        double guideLen = 55 + power * 190;
-
-        aimLine.setStartX(strikerX);
-        aimLine.setStartY(strikerY);
-        aimLine.setEndX(strikerX + dirX * guideLen);
-        aimLine.setEndY(strikerY + dirY * guideLen);
-        aimLine.setVisible(true);
-
-        aimTip.setCenterX(strikerX + dirX * guideLen);
-        aimTip.setCenterY(strikerY + dirY * guideLen);
-        aimTip.setVisible(true);
-
-        double pull = power * MAX_DRAG;
-        dragLine.setStartX(strikerX);
-        dragLine.setStartY(strikerY);
-        dragLine.setEndX(strikerX - dirX * pull);
-        dragLine.setEndY(strikerY - dirY * pull);
-        dragLine.setVisible(true);
-
-        powerFill.setWidth(220 * power);
-    }
-
     private void onMouseDragged(MouseEvent e) {
         if (!connected || !isMyTurn || phase != READY || dragMode == NONE) {
             return;
@@ -929,6 +889,46 @@ public class CaromNetworkGame extends Application {
         shotOwnedByMe = true;
         awaitingRemoteState = false;
         hintLabel.setText("");
+    }
+
+    public void applyRemoteStrikerPlacement(double strikerX, double strikerY) {
+        if (phase != READY) {
+            return;
+        }
+
+        if (!pieces.contains(striker)) {
+            striker = new CaromPiece(strikerX, strikerY, STRIKER_RADIUS, STRIKER);
+            addPiece(striker);
+        }
+
+        striker.x = nearestLegalStrikerX(strikerX, strikerY);
+        striker.y = strikerY;
+        striker.vx = 0;
+        striker.vy = 0;
+        striker.updateNodePosition();
+    }
+
+    public void showRemoteAimVisuals(double strikerX, double strikerY, double dirX, double dirY, double power) {
+        double guideLen = 55 + power * 190;
+
+        aimLine.setStartX(strikerX);
+        aimLine.setStartY(strikerY);
+        aimLine.setEndX(strikerX + dirX * guideLen);
+        aimLine.setEndY(strikerY + dirY * guideLen);
+        aimLine.setVisible(true);
+
+        aimTip.setCenterX(strikerX + dirX * guideLen);
+        aimTip.setCenterY(strikerY + dirY * guideLen);
+        aimTip.setVisible(true);
+
+        double pull = power * MAX_DRAG;
+        dragLine.setStartX(strikerX);
+        dragLine.setStartY(strikerY);
+        dragLine.setEndX(strikerX - dirX * pull);
+        dragLine.setEndY(strikerY - dirY * pull);
+        dragLine.setVisible(true);
+
+        powerFill.setWidth(220 * power);
     }
 
     /**
