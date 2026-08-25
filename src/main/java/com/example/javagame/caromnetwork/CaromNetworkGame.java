@@ -1280,66 +1280,121 @@ public class CaromNetworkGame extends Application {
         int ownPocketed = 0;
         int rivalPocketed = 0;
         boolean queenPocketed = false;
+
         for (Kind kind : pocketedThisShot) {
             if (kind == QUEEN) queenPocketed = true;
             else if (kind == shooter.coin) ownPocketed++;
             else rivalPocketed++;
         }
 
-        shooter.pocketed += ownPocketed;
-        rival.pocketed += rivalPocketed;
-
         boolean shootAgain;
         String message;
 
+        // CRITICAL FIX: Add pocketed counts immediately so foul calculations
+        // can accurately see and pull from the player's updated inventory.
+        shooter.pocketed += ownPocketed;
+        rival.pocketed += rivalPocketed;
+
+        // 1. STRIKER FOUL HANDLING
         if (strikerPocketedThisShot) {
-            // Foul: coins stay down, but the shooter owes one back - only if they have one.
-            boolean returned = shooter.pocketed > 0 && returnCoinToBoard(shooter.coin);
-            if (returned) shooter.pocketed--;
-            restoreQueenIfUnclaimed();
-            shootAgain = false;
-            message = shooter.name + " pocketed the striker - foul"
-                    + (returned ? ", one coin returned" : "");
-        } else if (pocketedThisShot.isEmpty() && !strikerTouchedCoin) {
-            restoreQueenIfUnclaimed();
-            shootAgain = false;
-            message = shooter.name + " missed everything - foul";
-        } else if (queenPocketed) {
+            int penaltyCoinsOwed = 1; // Base striker foul penalty
+
             if (ownPocketed > 0) {
-                setQueenOwner(shooter);
-                queenPendingCoverBy = null;
+                // Rule: Pocketed own coins must be returned to the board alongside the penalty
+                penaltyCoinsOwed += ownPocketed;
+                // CRITICAL ICF RULE: Pocketing your own coin + striker means you KEEP your turn
                 shootAgain = true;
-                message = shooter.name + " pocketed and covered the Queen (+" + QUEEN_BONUS + ")";
+            } else {
+                // Pocketed nothing or pocketed rival coin with striker = lose turn
+                shootAgain = false;
+            }
+
+            // CRITICAL FIX: If rival coin was pocketed on a foul, it must be returned, not scored
+            if (rivalPocketed > 0) {
+                for (int i = 0; i < rivalPocketed; i++) {
+                    returnCoinToBoard(rival.coin);
+                }
+                rival.pocketed -= rivalPocketed;
+            }
+
+            // Process penalty using available pocketed coins (now includes this shot's coins)
+            int coinsToReturn = Math.min(shooter.pocketed, penaltyCoinsOwed);
+            shooter.pocketed -= coinsToReturn;
+
+            for (int i = 0; i < coinsToReturn; i++) {
+                returnCoinToBoard(shooter.coin);
+            }
+
+            // Queen is automatically returned if pocketed or unclaimed during a striker foul
+            restoreQueenIfUnclaimed();
+            queenPendingCoverBy = null;
+
+            message = shooter.name + " pocketed the striker (Foul). "
+                    + (coinsToReturn > 0 ? coinsToReturn + " coin(s) returned to board." : "No coins to return.");
+        }
+
+        // 2. NORMAL SHOTS (NO STRIKER FOUL)
+        else {
+            if (queenPocketed) {
+                if (ownPocketed > 0 && rivalPocketed == 0) {
+                    setQueenOwner(shooter);
+                    queenPendingCoverBy = null;
+                    shootAgain = true;
+                    message = shooter.name + " pocketed and covered the Queen simultaneously!";
+                } else if (ownPocketed > 0 && rivalPocketed > 0) {
+                    setQueenOwner(shooter);
+                    queenPendingCoverBy = null;
+                    shootAgain = false; // Rival coin ends turn
+                    message = shooter.name + " covered Queen but pocketed rival coin. Turn passes.";
+                } else if (rivalPocketed > 0) {
+                    restoreQueenIfUnclaimed();
+                    shootAgain = false;
+                    message = shooter.name + " pocketed Queen and rival coin. Queen returns to board.";
+                } else {
+                    queenPendingCoverBy = shooter;
+                    shootAgain = true;
+                    message = shooter.name + " pocketed the Queen. Must cover on next shot.";
+                }
+            }
+            // Trying to cover a Queen pocketed from the PREVIOUS shot
+            else if (queenPendingCoverBy == shooter) {
+                if (ownPocketed > 0 && rivalPocketed == 0) {
+                    setQueenOwner(shooter);
+                    queenPendingCoverBy = null;
+                    shootAgain = true;
+                    message = "Queen successfully covered by " + shooter.name;
+                } else {
+                    // Failed to cover (hit rival coin, clean miss, etc.)
+                    restoreQueenIfUnclaimed();
+                    queenPendingCoverBy = null;
+
+                    // Turn continuation rules if cover fails
+                    if (ownPocketed > 0 && rivalPocketed == 0) {
+                        shootAgain = true; // Still pocketed own coin safely
+                    } else {
+                        shootAgain = false; // Hit rival coin or missed entirely
+                    }
+                    message = shooter.name + " failed to cover. Queen returns to board.";
+                }
+            }
+            // Standard non-queen scoring shots
+            else if (ownPocketed > 0 && rivalPocketed == 0) {
+                shootAgain = true;
+                message = shooter.name + " scores and continues.";
             } else if (rivalPocketed > 0) {
-                // Potting a rival coin ends the turn, so there is no chance to cover.
-                restoreQueenIfUnclaimed();
-                shootAgain = false;
-                message = shooter.name + " potted a rival coin - Queen returns to the board";
+                shootAgain = false; // Sinking rival coin always ends turn
+                message = shooter.name + " pocketed a rival coin. Turn passes.";
             } else {
-                queenPendingCoverBy = shooter;
-                shootAgain = true;
-                message = shooter.name + " has the Queen - cover it with your own coin";
+                shootAgain = false; // Normal clean miss
+                message = "No coins pocketed. Turn passes.";
             }
-        } else if (queenPendingCoverBy == shooter) {
-            if (ownPocketed > 0) {
-                setQueenOwner(shooter);
-                queenPendingCoverBy = null;
-                shootAgain = true;
-                message = "Queen covered by " + shooter.name + " (+" + QUEEN_BONUS + ")";
-            } else {
-                restoreQueenIfUnclaimed();
-                shootAgain = false;
-                message = shooter.name + " failed to cover - Queen returns to the board";
+
+            // EDGE CASE CHECK: Pocketing last coin while Queen is still unclaimed on the board
+            // Assumes a board tracker function or total max capacity calculation (e.g., 9 coins total)
+            if (shooter.pocketed == 9 && !shooter.hasQueen() && queenPendingCoverBy != shooter) {
+                message = shooter.name + " cleared all coins before the Queen! Board penalty foul.";
+                // Handle board resetting or match forfeit rules here depending on design
             }
-        } else if (ownPocketed > 0 && rivalPocketed == 0) {
-            shootAgain = true;
-            message = shooter.name + " pockets " + ownPocketed + " - shoot again";
-        } else if (rivalPocketed > 0) {
-            shootAgain = false;
-            message = shooter.name + " potted " + rivalPocketed + " of " + rival.name + "'s coins";
-        } else {
-            shootAgain = false;
-            message = "No coin pocketed - turn passes";
         }
 
         updateHud();
