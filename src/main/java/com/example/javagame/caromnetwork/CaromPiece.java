@@ -2,7 +2,6 @@ package com.example.javagame.caromnetwork;
 
 import javafx.scene.effect.DropShadow;
 import javafx.scene.paint.Color;
-import javafx.scene.paint.CycleMethod;
 import javafx.scene.paint.RadialGradient;
 import javafx.scene.paint.Stop;
 import javafx.scene.shape.Circle;
@@ -15,6 +14,7 @@ import static com.example.javagame.caromnetwork.CaromNetworkGame.STRIKER_MASS;
 import static com.example.javagame.caromnetwork.Kind.STRIKER;
 import static javafx.scene.paint.Color.BLACK;
 import static javafx.scene.paint.Color.WHITE;
+import static javafx.scene.paint.CycleMethod.NO_CYCLE;
 
 public class CaromPiece {
     final Kind kind;
@@ -38,7 +38,7 @@ public class CaromPiece {
         };
 
         node = new Circle(x, y, radius);
-        node.setFill(new RadialGradient(0, 0, 0.35, 0.3, 0.9, true, CycleMethod.NO_CYCLE,
+        node.setFill(new RadialGradient(0, 0, 0.35, 0.3, 0.9, true, NO_CYCLE,
                 new Stop(0, base.interpolate(WHITE, 0.45)),
                 new Stop(0.7, base),
                 new Stop(1, base.interpolate(BLACK, 0.35))));
