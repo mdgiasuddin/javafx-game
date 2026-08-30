@@ -1369,11 +1369,7 @@ public class CaromNetworkGame extends Application {
                     queenPendingCoverBy = null;
 
                     // Turn continuation rules if cover fails
-                    if (ownPocketed > 0 && rivalPocketed == 0) {
-                        shootAgain = true; // Still pocketed own coin safely
-                    } else {
-                        shootAgain = false; // Hit rival coin or missed entirely
-                    }
+                    shootAgain = false; // Hit rival coin or missed entirely
                     message = shooter.name + " failed to cover. Queen returns to board.";
                 }
             }

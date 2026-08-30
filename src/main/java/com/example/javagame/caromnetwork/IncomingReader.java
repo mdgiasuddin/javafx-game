@@ -6,8 +6,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 
 public class IncomingReader implements Runnable {
-    private CaromNetworkGame game;
-    private BufferedReader in;
+    private final CaromNetworkGame game;
+    private final BufferedReader in;
 
     public IncomingReader(CaromNetworkGame game, BufferedReader in) {
         this.game = game;
