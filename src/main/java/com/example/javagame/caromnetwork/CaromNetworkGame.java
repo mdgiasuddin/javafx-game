@@ -685,8 +685,8 @@ public class CaromNetworkGame extends Application {
     }
 
     // =====================================================================================
-// Turn timer
-// =====================================================================================
+    // Turn timer
+    // =====================================================================================
 
     /**
      * True if this client is the one responsible for deciding a timeout on the current turn -
@@ -1274,6 +1274,21 @@ public class CaromNetworkGame extends Application {
     }
 
     private void resolveShot() {
+        if (!shotOwnedByMe && connected) {
+            // Only the shooter's client is authoritative for what a shot actually did.
+            // Both clients simulate every shot for smooth visuals, but the two simulations
+            // can disagree (frame timing, floating-point drift near a pocket edge), so
+            // scoring, queen bookkeeping, and win detection here would just be a guess.
+            // Freeze in place and wait for the shooter's STATE message to tell us what
+            // really happened, instead of risking a false "game over" from our own guess.
+            phase = READY;
+            dragMode = NONE;
+            hideAimVisuals();
+            awaitingRemoteState = true;
+            updateTurnText();
+            return;
+        }
+
         Player shooter = current();
         Player rival = opponent();
 
