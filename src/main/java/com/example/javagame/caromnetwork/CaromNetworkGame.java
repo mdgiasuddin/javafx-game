@@ -588,7 +588,7 @@ public class CaromNetworkGame extends Application {
 
             if (phase == GAME_OVER) {
                 stopTurnTimer();
-                Player winner = findWinner();
+                Player winner = findWinner(true);
                 if (winner != null) endGame(winner);
             } else {
                 overlay.setVisible(false);
@@ -1275,12 +1275,6 @@ public class CaromNetworkGame extends Application {
 
     private void resolveShot() {
         if (!shotOwnedByMe && connected) {
-            // Only the shooter's client is authoritative for what a shot actually did.
-            // Both clients simulate every shot for smooth visuals, but the two simulations
-            // can disagree (frame timing, floating-point drift near a pocket edge), so
-            // scoring, queen bookkeeping, and win detection here would just be a guess.
-            // Freeze in place and wait for the shooter's STATE message to tell us what
-            // really happened, instead of risking a false "game over" from our own guess.
             phase = READY;
             dragMode = NONE;
             hideAimVisuals();
@@ -1305,26 +1299,20 @@ public class CaromNetworkGame extends Application {
         boolean shootAgain;
         String message;
 
-        // CRITICAL FIX: Add pocketed counts immediately so foul calculations
-        // can accurately see and pull from the player's updated inventory.
         shooter.pocketed += ownPocketed;
         rival.pocketed += rivalPocketed;
 
         // 1. STRIKER FOUL HANDLING
         if (strikerPocketedThisShot) {
-            int penaltyCoinsOwed = 1; // Base striker foul penalty
+            int penaltyCoinsOwed = 1;
 
             if (ownPocketed > 0) {
-                // Rule: Pocketed own coins must be returned to the board alongside the penalty
                 penaltyCoinsOwed += ownPocketed;
-                // CRITICAL ICF RULE: Pocketing your own coin + striker means you KEEP your turn
                 shootAgain = true;
             } else {
-                // Pocketed nothing or pocketed rival coin with striker = lose turn
                 shootAgain = false;
             }
 
-            // CRITICAL FIX: If rival coin was pocketed on a foul, it must be returned, not scored
             if (rivalPocketed > 0) {
                 for (int i = 0; i < rivalPocketed; i++) {
                     returnCoinToBoard(rival.coin);
@@ -1332,7 +1320,6 @@ public class CaromNetworkGame extends Application {
                 rival.pocketed -= rivalPocketed;
             }
 
-            // Process penalty using available pocketed coins (now includes this shot's coins)
             int coinsToReturn = Math.min(shooter.pocketed, penaltyCoinsOwed);
             shooter.pocketed -= coinsToReturn;
 
@@ -1340,7 +1327,6 @@ public class CaromNetworkGame extends Application {
                 returnCoinToBoard(shooter.coin);
             }
 
-            // Queen is automatically returned if pocketed or unclaimed during a striker foul
             restoreQueenIfUnclaimed();
             queenPendingCoverBy = null;
 
@@ -1359,7 +1345,7 @@ public class CaromNetworkGame extends Application {
                 } else if (ownPocketed > 0 && rivalPocketed > 0) {
                     setQueenOwner(shooter);
                     queenPendingCoverBy = null;
-                    shootAgain = false; // Rival coin ends turn
+                    shootAgain = false;
                     message = shooter.name + " covered Queen but pocketed rival coin. Turn passes.";
                 } else if (rivalPocketed > 0) {
                     restoreQueenIfUnclaimed();
@@ -1371,7 +1357,6 @@ public class CaromNetworkGame extends Application {
                     message = shooter.name + " pocketed the Queen. Must cover on next shot.";
                 }
             }
-            // Trying to cover a Queen pocketed from the PREVIOUS shot
             else if (queenPendingCoverBy == shooter) {
                 if (ownPocketed > 0 && rivalPocketed == 0) {
                     setQueenOwner(shooter);
@@ -1379,29 +1364,25 @@ public class CaromNetworkGame extends Application {
                     shootAgain = true;
                     message = "Queen successfully covered by " + shooter.name;
                 } else {
-                    // Failed to cover (hit rival coin, clean miss, etc.)
                     restoreQueenIfUnclaimed();
                     queenPendingCoverBy = null;
-
-                    // Turn continuation rules if cover fails
                     shootAgain = false;
                     message = shooter.name + " failed to cover. Queen returns to board.";
                 }
             }
-            // Standard non-queen scoring shots
             else if (ownPocketed > 0 && rivalPocketed == 0) {
                 shootAgain = true;
                 message = shooter.name + " scores and continues.";
             } else if (rivalPocketed > 0) {
-                shootAgain = false; // Sinking rival coin always ends turn
+                shootAgain = false;
                 message = shooter.name + " pocketed a rival coin. Turn passes.";
             } else {
-                shootAgain = false; // Normal clean miss
+                shootAgain = false;
                 message = "No coins pocketed. Turn passes.";
             }
 
-            // EDGE CASE CHECK: Cleared all coins without owning the Queen
-            if (shooter.pocketed >= COINS_PER_PLAYER && queenOwner != shooter) {
+            // EDGE CASE: Cleared all coins without covering the Queen
+            if (shooter.pocketed >= COINS_PER_PLAYER && queenOwner == null) {
                 restoreQueenIfUnclaimed();
                 queenPendingCoverBy = null;
 
@@ -1419,7 +1400,7 @@ public class CaromNetworkGame extends Application {
 
         updateHud();
 
-        Player winner = findWinner();
+        Player winner = findWinner(false);
         if (winner != null) {
             endGame(winner);
             broadcastState();
@@ -1427,7 +1408,6 @@ public class CaromNetworkGame extends Application {
         }
 
         if (!shotOwnedByMe) {
-            // Somebody else's shot: the turn is theirs to hand over, not ours to take.
             awaitingRemoteState = true;
         } else if (!shootAgain) {
             player1Turn = !player1Turn;
@@ -1597,10 +1577,30 @@ public class CaromNetworkGame extends Application {
      * The board is won by the player whose nine coins are all off the table - note that
      * potting your rival's last coin for them hands them the board.
      */
-    private Player findWinner() {
+    private Player findWinner(boolean fromRemoteState) {
+        // If the rival's coin count reaches max because the shooter potted their last coin for them,
+        // the rival wins immediately regardless of queen ownership.
+        Player shotOwner = fromRemoteState ? opponent() : current();
+        if (p2.pocketed >= COINS_PER_PLAYER && shotOwner == p1 && containsRivalCoinPocketed()) {
+            return p2;
+        }
+        if (p1.pocketed >= COINS_PER_PLAYER && shotOwner == p2 && containsRivalCoinPocketed()) {
+            return p1;
+        }
+
+        // Normal win condition: Must have all coins.
         if (p1.pocketed >= COINS_PER_PLAYER) return p1;
         if (p2.pocketed >= COINS_PER_PLAYER) return p2;
+
         return null;
+    }
+
+    private boolean containsRivalCoinPocketed() {
+        Player rival = opponent();
+        for (Kind kind : pocketedThisShot) {
+            if (kind == rival.coin) return true;
+        }
+        return false;
     }
 
     private void endGame(Player winner) {
