@@ -259,7 +259,7 @@ public class CaromNetworkGame extends Application {
                 new Stop(1, Color.web("#e0c087"))));
         boardGroup.getChildren().add(surface);
 
-        // Playing-area border lines
+        // Playing-area borderlines
         for (double inset : new double[]{POCKET_INSET + 16, POCKET_INSET + 20}) {
             Rectangle line = new Rectangle(boardLeft() + inset, boardTop() + inset,
                     BOARD_SIZE - 2 * inset, BOARD_SIZE - 2 * inset);
@@ -269,7 +269,7 @@ public class CaromNetworkGame extends Application {
             boardGroup.getChildren().add(line);
         }
 
-        // Centre circle group
+        // Center circle group
         Circle outerRing = new Circle(centerX(), centerY(), 58, TRANSPARENT);
         outerRing.setStroke(Color.web("#8d6b3f"));
         outerRing.setStrokeWidth(1.6);
@@ -1384,7 +1384,7 @@ public class CaromNetworkGame extends Application {
                     queenPendingCoverBy = null;
 
                     // Turn continuation rules if cover fails
-                    shootAgain = false; // Hit rival coin or missed entirely
+                    shootAgain = false;
                     message = shooter.name + " failed to cover. Queen returns to board.";
                 }
             }
@@ -1400,11 +1400,20 @@ public class CaromNetworkGame extends Application {
                 message = "No coins pocketed. Turn passes.";
             }
 
-            // EDGE CASE CHECK: Pocketing last coin while Queen is still unclaimed on the board
-            // Assumes a board tracker function or total max capacity calculation (e.g., 9 coins total)
-            if (shooter.pocketed == 9 && !shooter.hasQueen() && queenPendingCoverBy != shooter) {
-                message = shooter.name + " cleared all coins before the Queen! Board penalty foul.";
-                // Handle board resetting or match forfeit rules here depending on design
+            // EDGE CASE CHECK: Cleared all coins without owning the Queen
+            if (shooter.pocketed >= COINS_PER_PLAYER && queenOwner != shooter) {
+                restoreQueenIfUnclaimed();
+                queenPendingCoverBy = null;
+
+                int penaltyCoins = 1;
+                int coinsToReturn = Math.min(shooter.pocketed, penaltyCoins);
+                shooter.pocketed -= coinsToReturn;
+                for (int i = 0; i < coinsToReturn; i++) {
+                    returnCoinToBoard(shooter.coin);
+                }
+
+                shootAgain = false;
+                message = shooter.name + " cleared all coins before securing the Queen! Penalty: " + coinsToReturn + " coin returned.";
             }
         }
 
@@ -1589,23 +1598,9 @@ public class CaromNetworkGame extends Application {
      * potting your rival's last coin for them hands them the board.
      */
     private Player findWinner() {
-        Player finished = null;
-        if (p1.pocketed >= COINS_PER_PLAYER) finished = p1;
-        else if (p2.pocketed >= COINS_PER_PLAYER) finished = p2;
-        if (finished == null) return null;
-
-        // An unclaimed Queen goes to whoever finishes the board.
-        if (queenOwner == null) {
-            setQueenOwner(finished);
-            queenPendingCoverBy = null;
-            queenOnBoard = false;
-            for (int i = pieces.size() - 1; i >= 0; i--) {
-                if (pieces.get(i).kind == QUEEN) {
-                    pieceLayer.getChildren().remove(pieces.remove(i).node);
-                }
-            }
-        }
-        return finished;
+        if (p1.pocketed >= COINS_PER_PLAYER) return p1;
+        if (p2.pocketed >= COINS_PER_PLAYER) return p2;
+        return null;
     }
 
     private void endGame(Player winner) {
