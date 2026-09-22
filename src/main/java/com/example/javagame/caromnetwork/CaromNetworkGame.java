@@ -54,7 +54,7 @@ import static javafx.scene.text.FontWeight.BOLD;
  */
 public class CaromNetworkGame extends Application {
     private static final int DEFAULT_PORT = 12346;
-    private static final String DEFAULT_HOST = "127.0.0.1";
+    private static final String DEFAULT_HOST = "10.21.179.85";
 
     private Socket socket;
     private PrintWriter out;

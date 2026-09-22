@@ -146,4 +146,85 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          Builds target/carom.jar: a standalone, runnable jar holding just the caromnetwork
+          package plus the JavaFX modules it needs.
+
+              ./mvnw -Pcarom-jar clean package
+              java -jar target/carom.jar server     # relay server on port 12346
+              java -jar target/carom.jar <host>     # client, defaults to DEFAULT_HOST
+
+          The JavaFX artifacts carry platform-specific native libraries, so the jar this
+          produces only runs on the platform it was built on.
+        -->
+        <profile>
+            <id>carom-jar</id>
+            <build>
+                <finalName>carom</finalName>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-shade-plugin</artifactId>
+                        <version>3.6.0</version>
+                        <executions>
+                            <execution>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>shade</goal>
+                                </goals>
+                                <configuration>
+                                    <createDependencyReducedPom>false</createDependencyReducedPom>
+                                    <artifactSet>
+                                        <!-- Carom only touches controls, and what controls pulls in. -->
+                                        <includes>
+                                            <include>org.openjfx:javafx-base</include>
+                                            <include>org.openjfx:javafx-graphics</include>
+                                            <include>org.openjfx:javafx-controls</include>
+                                        </includes>
+                                    </artifactSet>
+                                    <filters>
+                                        <filter>
+                                            <artifact>*:*</artifact>
+                                            <excludes>
+                                                <!-- The jar runs off the classpath, so descriptors and
+                                                     signatures inherited from the inputs are dead weight
+                                                     that also breaks jar verification. -->
+                                                <exclude>module-info.class</exclude>
+                                                <exclude>META-INF/versions/*/module-info.class</exclude>
+                                                <exclude>META-INF/*.SF</exclude>
+                                                <exclude>META-INF/*.DSA</exclude>
+                                                <exclude>META-INF/*.RSA</exclude>
+                                                <exclude>javafx-swt.jar</exclude>
+                                            </excludes>
+                                        </filter>
+                                        <filter>
+                                            <!-- Leave the other games, and their dependencies, out. -->
+                                            <artifact>com.example:java-game</artifact>
+                                            <includes>
+                                                <include>com/example/javagame/caromnetwork/**</include>
+                                            </includes>
+                                        </filter>
+                                    </filters>
+                                    <transformers>
+                                        <transformer
+                                                implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                            <mainClass>com.example.javagame.caromnetwork.CaromLauncher</mainClass>
+                                            <manifestEntries>
+                                                <!-- JavaFX loads its native libraries out of the jar.
+                                                     Without this the JVM warns on every launch, and
+                                                     will refuse outright in a future release. -->
+                                                <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
+                                            </manifestEntries>
+                                        </transformer>
+                                    </transformers>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
