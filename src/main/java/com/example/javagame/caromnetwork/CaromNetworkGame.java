@@ -86,7 +86,7 @@ public class CaromNetworkGame extends Application {
 
     private static final double COIN_RADIUS = 11;
     private static final double STRIKER_RADIUS = 16;
-    private static final double POCKET_RADIUS = 20;
+    private static final double POCKET_RADIUS = 14;
     private static final double POCKET_INSET = 21;
     private static final double BASELINE_INSET = 62;
     private static final double BASELINE_HALF_WIDTH = 170;
@@ -1001,7 +1001,7 @@ public class CaromNetworkGame extends Application {
     }
 
     public void showRemoteAimVisuals(double strikerX, double strikerY, double dirX, double dirY, double power) {
-        double guideLen = 55 + power * 190;
+        double guideLen = 20 + power * 90;
 
         aimLine.setStartX(strikerX);
         aimLine.setStartY(strikerY);
@@ -1083,7 +1083,7 @@ public class CaromNetworkGame extends Application {
     }
 
     private void showAimVisuals() {
-        double guideLen = 55 + aimPower * 190;
+        double guideLen = 20 + aimPower * 90;
         aimLine.setStartX(striker.x);
         aimLine.setStartY(striker.y);
         aimLine.setEndX(striker.x + aimDirX * guideLen);
