@@ -7,5 +7,4 @@ module com.example.javagame {
     exports com.example.javagame.chessnetwork;
     exports com.example.javagame.tetris;
     exports com.example.javagame.caromnetwork;
-    exports com.example.javagame.poolgame;
 }
