@@ -35,6 +35,7 @@ public class ChessNetworkApp extends Application {
     private static final String LIGHT_TILE = "#f0d9b5";
     private static final String DARK_TILE = "#b58863";
     private static final String SELECTED_TILE = "#7b9c50";
+    private static final String OPPONENT_SELECTED_TILE = "#aec6cf";
 
     private static final String ERROR_STYLE = "-fx-background-color: #d9534f; -fx-background-radius: 8px;";
     private static final String CONNECTING_STYLE = "-fx-background-color: #555555; -fx-background-radius: 8px;";
@@ -58,6 +59,12 @@ public class ChessNetworkApp extends Application {
 
     private int selectedRow = -1;
     private int selectedCol = -1;
+
+    // Tracks the square the opponent currently has selected, so we can mirror
+    // their selection highlight on our own board.
+    private int opponentSelectedRow = -1;
+    private int opponentSelectedCol = -1;
+
     private boolean whiteTurn = true;
     public boolean gameOver = false;
 
@@ -213,6 +220,7 @@ public class ChessNetworkApp extends Application {
             selectedRow = row;
             selectedCol = col;
             bgTiles[row][col].setFill(Color.valueOf(SELECTED_TILE));
+            sendSelection(row, col);
             return;
         }
 
@@ -238,6 +246,7 @@ public class ChessNetworkApp extends Application {
         selectedRow = row;
         selectedCol = col;
         bgTiles[row][col].setFill(Color.valueOf(SELECTED_TILE));
+        sendSelection(row, col);
     }
 
     private void attemptMove(int targetRow, int targetCol) {
@@ -266,6 +275,9 @@ public class ChessNetworkApp extends Application {
     }
 
     public void executeMoveLocally(int sRow, int sCol, int tRow, int tCol) {
+        // The move has resolved, so any opponent selection highlight is now stale.
+        clearOpponentSelection();
+
         String movingPiece = boardUI[sRow][sCol].getText();
 
         if (isCastlingMove(movingPiece, sRow, sCol, tRow, tCol)) {
@@ -445,6 +457,79 @@ public class ChessNetworkApp extends Application {
         }
 
         return true;
+    }
+
+    /**
+     * Recognizes a piece-selection notification: "row,col" for a selected
+     * square, or "-1,-1" to indicate the opponent deselected their piece.
+     */
+    public boolean isValidSelectionMessage(String line) {
+        String[] parts = line.split(",");
+        if (parts.length != 2) {
+            return false;
+        }
+
+        try {
+            int row = Integer.parseInt(parts[0]);
+            int col = Integer.parseInt(parts[1]);
+
+            if (row == -1 && col == -1) {
+                return true;
+            }
+
+            return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Called by the incoming-message reader when the opponent selects a
+     * square, so we can mirror it as a highlight on our own board.
+     */
+    public void highlightOpponentSelection(int row, int col) {
+        Platform.runLater(() -> {
+            clearOpponentSelection();
+
+            if (row == -1 && col == -1) {
+                return;
+            }
+
+            opponentSelectedRow = row;
+            opponentSelectedCol = col;
+
+            // Don't stomp on our own selection highlight if, for some reason,
+            // the two happen to be the same square.
+            if (row != selectedRow || col != selectedCol) {
+                bgTiles[row][col].setFill(Color.valueOf(OPPONENT_SELECTED_TILE));
+            }
+        });
+    }
+
+    private void clearOpponentSelection() {
+        if (opponentSelectedRow != -1) {
+            int row = opponentSelectedRow;
+            int col = opponentSelectedCol;
+            opponentSelectedRow = -1;
+            opponentSelectedCol = -1;
+
+            // Don't overwrite our own current selection highlight.
+            if (row != selectedRow || col != selectedCol) {
+                bgTiles[row][col].setFill(getTileColor(row, col));
+            }
+        }
+    }
+
+    private void sendSelection(int row, int col) {
+        if (out != null) {
+            out.println(row + "," + col);
+        }
+    }
+
+    private void sendDeselection() {
+        if (out != null) {
+            out.println("-1,-1");
+        }
     }
 
     private boolean isValidMove(String piece, int sRow, int sCol, int tRow, int tCol) {
@@ -681,6 +766,7 @@ public class ChessNetworkApp extends Application {
         bgTiles[selectedRow][selectedCol].setFill(getTileColor(selectedRow, selectedCol));
         selectedRow = -1;
         selectedCol = -1;
+        sendDeselection();
     }
 
     private Color getTileColor(int row, int col) {

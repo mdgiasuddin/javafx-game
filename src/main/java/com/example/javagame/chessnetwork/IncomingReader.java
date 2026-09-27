@@ -7,8 +7,8 @@ import java.io.IOException;
 
 public class IncomingReader implements Runnable {
 
-    private ChessNetworkApp app;
-    private BufferedReader in;
+    private final ChessNetworkApp app;
+    private final BufferedReader in;
 
     public IncomingReader(ChessNetworkApp app, BufferedReader in) {
         this.app = app;
@@ -23,6 +23,15 @@ public class IncomingReader implements Runnable {
                 if ("DISCONNECT".equals(line)) {
                     Platform.runLater(() -> app.showError("Opponent disconnected."));
                     break;
+                }
+
+                if (app.isValidSelectionMessage(line)) {
+                    String[] parts = line.split(",");
+                    int row = Integer.parseInt(parts[0]);
+                    int col = Integer.parseInt(parts[1]);
+
+                    app.highlightOpponentSelection(row, col);
+                    continue;
                 }
 
                 if (!app.isValidMoveMessage(line)) {
