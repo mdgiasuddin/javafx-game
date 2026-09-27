@@ -81,7 +81,6 @@ public class ChessNetworkApp extends Application {
 
     private Socket socket;
     private PrintWriter out;
-    private BufferedReader in;
     public boolean isMyTurn = false;
     private boolean playerIsWhite = true;
 
@@ -134,7 +133,7 @@ public class ChessNetworkApp extends Application {
             try {
                 socket = new Socket(address, port);
                 out = new PrintWriter(socket.getOutputStream(), true);
-                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
                 String colorAssignment = in.readLine();
                 if (!"WHITE".equals(colorAssignment) && !"BLACK".equals(colorAssignment)) {
