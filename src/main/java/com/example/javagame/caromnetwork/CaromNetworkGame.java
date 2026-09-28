@@ -912,7 +912,7 @@ public class CaromNetworkGame extends Application {
         pressY = mouseY;
 
         double baseline = baselineY(player1Turn);
-        boolean onStriker = Math.hypot(mouseX - striker.x, mouseY - striker.y) <= striker.radius + 14;
+        boolean onStriker = length(mouseX - striker.x, mouseY - striker.y) <= striker.radius + 14;
         boolean inBand = Math.abs(mouseY - baseline) <= STRIKER_RADIUS + 12
                 && mouseX >= strikerMinX() - STRIKER_RADIUS
                 && mouseX <= strikerMaxX() + STRIKER_RADIUS;
@@ -936,7 +936,7 @@ public class CaromNetworkGame extends Application {
         if (dragMode == UNDECIDED) {
             double dx = mouseX - pressX;
             double dy = mouseY - pressY;
-            if (Math.hypot(dx, dy) < 6) {
+            if (length(dx, dy) < 6) {
                 return;
             }
 
@@ -1071,7 +1071,7 @@ public class CaromNetworkGame extends Application {
     private void computeAim(double mouseX, double mouseY) {
         double dragX = mouseX - striker.x;
         double dragY = mouseY - striker.y;
-        double dragLen = Math.hypot(dragX, dragY);
+        double dragLen = length(dragX, dragY);
         if (dragLen < 1e-6) {
             aimPower = 0;
             return;
@@ -1128,7 +1128,7 @@ public class CaromNetworkGame extends Application {
 
     private boolean anythingMoving() {
         for (CaromPiece p : pieces) {
-            if (Math.hypot(p.vx, p.vy) > REST_SPEED) return true;
+            if (length(p.vx, p.vy) > REST_SPEED) return true;
         }
         return false;
     }
@@ -1153,12 +1153,21 @@ public class CaromNetworkGame extends Application {
     }
 
     /**
+     * Vector length via {@link Math#sqrt}, which is correctly rounded and therefore bit-identical
+     * on every JVM - unlike {@link Math#hypot}, whose result may differ between platforms and
+     * would let the two peers' simulations drift apart.
+     */
+    private static double length(double dx, double dy) {
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    /**
      * Sliding friction: removes a fixed amount of speed from every piece, keeping its direction.
      * {@code slowdown} is the speed (px/frame) to remove in this sub-step, i.e. DECELERATION * dt.
      */
     private void applyFriction(double slowdown) {
         for (CaromPiece p : pieces) {
-            double speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);   // deterministic, unlike Math.hypot
+            double speed = length(p.vx, p.vy);
             if (speed <= slowdown) {
                 p.vx = 0;
                 p.vy = 0;
@@ -1208,7 +1217,7 @@ public class CaromNetworkGame extends Application {
     private void collide(CaromPiece a, CaromPiece b) {
         double dx = b.x - a.x;
         double dy = b.y - a.y;
-        double dist = Math.hypot(dx, dy);
+        double dist = length(dx, dy);
         double minDist = a.radius + b.radius;
         if (dist >= minDist) return;
 
@@ -1263,7 +1272,7 @@ public class CaromNetworkGame extends Application {
 
     private boolean isPocketed(CaromPiece p) {
         for (double[] c : pocketCenters()) {
-            if (Math.hypot(p.x - c[0], p.y - c[1]) < POCKET_RADIUS - 2) return true;
+            if (length(p.x - c[0], p.y - c[1]) < POCKET_RADIUS - 2) return true;
         }
         // Safety net: anything that somehow escaped the surface counts as pocketed.
         return p.x < boardLeft() - p.radius || p.x > boardRight() + p.radius
@@ -1551,10 +1560,10 @@ public class CaromNetworkGame extends Application {
         if (x - radius < boardLeft() + 4 || x + radius > boardRight() - 4) return false;
         if (y - radius < boardTop() + 4 || y + radius > boardBottom() - 4) return false;
         for (double[] c : pocketCenters()) {
-            if (Math.hypot(x - c[0], y - c[1]) < POCKET_RADIUS + radius + 8) return false;
+            if (length(x - c[0], y - c[1]) < POCKET_RADIUS + radius + 8) return false;
         }
         for (CaromPiece p : pieces) {
-            if (Math.hypot(x - p.x, y - p.y) < radius + p.radius + 1.5) return false;
+            if (length(x - p.x, y - p.y) < radius + p.radius + 1.5) return false;
         }
         return true;
     }
@@ -1562,7 +1571,7 @@ public class CaromNetworkGame extends Application {
     private boolean noOverlapsCoin(double x, double y) {
         for (CaromPiece p : pieces) {
             if (p == striker) continue;
-            if (Math.hypot(x - p.x, y - p.y) < STRIKER_RADIUS + p.radius + 0.5) return false;
+            if (length(x - p.x, y - p.y) < STRIKER_RADIUS + p.radius + 0.5) return false;
         }
         return true;
     }
