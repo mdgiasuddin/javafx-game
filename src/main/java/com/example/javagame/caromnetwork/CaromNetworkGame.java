@@ -118,6 +118,8 @@ public class CaromNetworkGame extends Application {
     public static final double STRIKER_MASS = 2.2;
     public static final double COIN_MASS = 1.0;
     private static final double REST_SPEED = 0.02;
+    private double accumulator = 0;
+    private static final int SUBSTEPS = 8;   // constant; 11.25 px/frame / 8 ≈ 1.4px, no tunneling
 
     private static final double TURN_TIME_LIMIT_SECONDS = 12.0;
     private static final long TURN_TIME_LIMIT_NANOS = (long) (TURN_TIME_LIMIT_SECONDS * 1_000_000_000L);
@@ -206,13 +208,22 @@ public class CaromNetworkGame extends Application {
 
                 if (phase != SHOOTING || lastFrameNanos == 0) {
                     lastFrameNanos = now;
+                    accumulator = 0;
                     return;
                 }
-                double elapsedSeconds = (now - lastFrameNanos) / 1_000_000_000.0;
+                double elapsed = (now - lastFrameNanos) / 1_000_000_000.0;
                 lastFrameNanos = now;
 
-                stepPhysics(Math.min(elapsedSeconds * 60.0, 3.0));
-                if (!anythingMoving()) resolveShot();
+                accumulator += Math.min(elapsed, 0.1) * 60.0;   // in 60fps-frame units
+
+                while (accumulator >= 1.0 && phase == SHOOTING) {
+                    stepPhysics();                  // ALWAYS exactly 1 frame
+                    accumulator -= 1.0;
+                    if (!anythingMoving()) {        // checked per fixed step, so both stop on the same step
+                        resolveShot();
+                        break;
+                    }
+                }
             }
         }.start();
 
@@ -1126,39 +1137,37 @@ public class CaromNetworkGame extends Application {
      * Advances the board by {@code frames} 60fps-equivalent steps (1.0 on a 60Hz display,
      * 0.5 on a 120Hz one).
      */
-    private void stepPhysics(double frames) {
-        double fastest = 0;
-        for (CaromPiece p : pieces) fastest = Math.max(fastest, Math.hypot(p.vx, p.vy));
-
-        // Sub-step so fast pieces cannot tunnel through coins or cushions.
-        int steps = Math.max(1, (int) Math.ceil(fastest * frames / 2.0));
-        double dt = frames / steps;
-
-        for (int s = 0; s < steps; s++) {
+    private void stepPhysics() {
+        final double dt = 1.0 / SUBSTEPS;
+        for (int s = 0; s < SUBSTEPS; s++) {
             for (CaromPiece p : pieces) {
                 p.x += p.vx * dt;
                 p.y += p.vy * dt;
                 bounceOffCushions(p);
             }
             resolveCollisions();
+            applyFriction(DECELERATION * dt);
+            collectPocketedPieces();
         }
+        for (CaromPiece p : pieces) p.updateNodePosition();
+    }
 
-        double slowdown = DECELERATION * frames;
+    /**
+     * Sliding friction: removes a fixed amount of speed from every piece, keeping its direction.
+     * {@code slowdown} is the speed (px/frame) to remove in this sub-step, i.e. DECELERATION * dt.
+     */
+    private void applyFriction(double slowdown) {
         for (CaromPiece p : pieces) {
-            // Sliding friction: shave a fixed amount off the speed, keeping the direction.
-            double speed = Math.hypot(p.vx, p.vy);
+            double speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);   // deterministic, unlike Math.hypot
             if (speed <= slowdown) {
                 p.vx = 0;
                 p.vy = 0;
             } else {
-                double slowed = (speed - slowdown) / speed;
-                p.vx *= slowed;
-                p.vy *= slowed;
+                double scale = (speed - slowdown) / speed;
+                p.vx *= scale;
+                p.vy *= scale;
             }
-            p.updateNodePosition();
         }
-
-        collectPocketedPieces();
     }
 
     /**
